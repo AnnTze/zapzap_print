@@ -22,11 +22,12 @@ BOT_TOKEN = os.getenv("PRINT_BOT_TOKEN", "")
 PRINTER_NAME = "MITSUBISHI_CPD90D"
 PAPER_W_PX = 1772   # landscape width at 300 DPI (15 cm / ME_10x15)
 PAPER_H_PX = 1181   # landscape height at 300 DPI (10 cm / ME_10x15)
-MAX_COPIES = 20
 LOG_FILE = os.getenv("LOG_FILE", "print_log.jsonl")
 GALLERY_BOT_TOKEN = os.getenv("GALLERY_BOT_TOKEN", "")
 GALLERY_CHANNEL_ID = os.getenv("GALLERY_CHANNEL_ID", "")
 GALLERY_LOG_FILE = os.getenv("GALLERY_LOG_FILE", "gallery_log.jsonl")
+MAX_PRINTS_PER_MESSAGE = int(os.getenv("MAX_PRINTS_PER_MESSAGE", "5"))
+MAX_COPIES = MAX_PRINTS_PER_MESSAGE
 # --------------
 
 logging.basicConfig(
@@ -76,6 +77,37 @@ def parse_copies(caption: str | None) -> int:
     if isinstance(result, str):
         return 1
     return result[0]
+
+
+def validate_print_limit(copy_list: list[int]) -> tuple[bool, int, str]:
+    """
+    Checks whether the total prints across all photos exceeds
+    MAX_PRINTS_PER_MESSAGE.
+
+    Returns:
+      (ok: bool, total: int, error_msg: str)
+
+    ok=True means the job is within limits.
+    ok=False means it should be rejected with error_msg.
+    """
+    total = sum(copy_list)
+    if total > MAX_PRINTS_PER_MESSAGE:
+        if len(copy_list) == 1:
+            error = (
+                f"Too many copies requested ({total}). "
+                f"Maximum is {MAX_PRINTS_PER_MESSAGE} prints per message.\n\n"
+                f"Please resend with a caption of {MAX_PRINTS_PER_MESSAGE} or less."
+            )
+        else:
+            breakdown = " + ".join(str(c) for c in copy_list)
+            error = (
+                f"Total prints too high ({breakdown} = {total} prints). "
+                f"Maximum is {MAX_PRINTS_PER_MESSAGE} prints per message.\n\n"
+                f"Please adjust your copy counts so they add up to "
+                f"{MAX_PRINTS_PER_MESSAGE} or less."
+            )
+        return False, total, error
+    return True, total, ""
 
 
 def fix_exif_rotation(img: Image.Image) -> Image.Image:
@@ -295,7 +327,7 @@ PAUSED_REPLY_TEMPLATE = (
 )
 
 
-INSTRUCTIONS = """📸 *Photo Print Bot — How to Use*
+INSTRUCTIONS = f"""📸 *Photo Print Bot — How to Use*
 
 Send a photo to print it on a 4x6 \(10x15 cm\) photo paper\.
 
@@ -310,7 +342,7 @@ Select several photos and send them together as an album\.
 • `3,5,1` → photo 1 \= 3 copies, photo 2 \= 5, photo 3 \= 1
 The number of values must match the number of photos\.
 
-Maximum is 20 copies per photo\.
+Maximum is {MAX_PRINTS_PER_MESSAGE} total prints per message\.
 
 *Tips*
 • Portrait and landscape photos are both supported\.
@@ -347,6 +379,12 @@ async def process_single_photo(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     copies = parse_copies(message.caption)
+    copy_list = [copies]
+    ok, total, err = validate_print_limit(copy_list)
+    if not ok:
+        await message.reply_text(err)
+        return
+
     user = message.from_user
     await message.reply_text(f"Printing {copies} {'copy' if copies == 1 else 'copies'}...")
 
@@ -408,6 +446,11 @@ async def process_album(media_group_id: str, context: ContextTypes.DEFAULT_TYPE)
 
     if isinstance(copy_list, str):
         await updates[0].effective_message.reply_text(copy_list)
+        return
+
+    ok, total, err = validate_print_limit(copy_list)
+    if not ok:
+        await updates[0].effective_message.reply_text(err)
         return
 
     user = updates[0].effective_message.from_user
