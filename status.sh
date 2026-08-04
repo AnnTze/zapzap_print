@@ -61,12 +61,14 @@ check_bot print_bot "$PRINT_PID"
 check_bot monitor_bot "$MONITOR_PID"
 check_bot gallery_bot "$GALLERY_PID"
 
-# --- Printer status ---
+# --- Printer status (via the cross-platform printing abstraction) ---
 echo "=== Printer Status ==="
-PRINTER_LINE=$(lpstat -p 2>/dev/null | grep -i "MITSUBISHI" | head -1)
-if [ -n "$PRINTER_LINE" ]; then
-    PRINTER_NAME=$(echo "$PRINTER_LINE" | awk '{print $2}')
-    ok "Printer ONLINE: ${PRINTER_NAME}"
+PY=".venv/bin/python"
+[ -x "$PY" ] || PY="python3"
+if PRINTER_STATUS=$("$PY" -m printing status 2>/dev/null); then
+    ok "$PRINTER_STATUS"
+elif [ -n "$PRINTER_STATUS" ]; then
+    err "$PRINTER_STATUS"
 else
     err "Printer NOT DETECTED"
 fi

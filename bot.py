@@ -3,7 +3,6 @@ import re
 import json
 import time
 import asyncio
-import subprocess
 import tempfile
 import logging
 from datetime import datetime, timezone
@@ -15,11 +14,15 @@ from PIL import Image, ExifTags
 from telegram import Bot, Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
 
+from printing import get_printer_backend
+
 load_dotenv()
 
 # --- Config ---
 BOT_TOKEN = os.getenv("PRINT_BOT_TOKEN", "")
-PRINTER_NAME = "MITSUBISHI_CPD90D"
+# Target printer. Set PRINTER_NAME in .env; falls back to the original
+# hardcoded value so existing macOS deployments keep working unchanged.
+PRINTER_NAME = os.getenv("PRINTER_NAME", "MITSUBISHI_CPD90D")
 PAPER_W_PX = 1772   # landscape width at 300 DPI (15 cm / ME_10x15)
 PAPER_H_PX = 1181   # landscape height at 300 DPI (10 cm / ME_10x15)
 LOG_FILE = os.getenv("LOG_FILE", "print_log.jsonl")
@@ -148,14 +151,13 @@ def fit_to_paper(img: Image.Image) -> Image.Image:
     return img.crop((offset_x, offset_y, offset_x + canvas_w, offset_y + canvas_h))
 
 
+# Platform printer backend (CUPS on macOS, pywin32 on Windows), chosen at startup.
+_printer_backend = get_printer_backend()
+
+
 def send_to_printer(jpeg_path: str, copies: int) -> None:
-    cmd = ["lpr", "-#", str(copies), "-o", "media=ME_10x15", "-o", "fit-to-page"]
-    if PRINTER_NAME:
-        cmd += ["-P", PRINTER_NAME]
-    cmd.append(jpeg_path)
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        raise RuntimeError(f"lpr failed: {result.stderr.strip()}")
+    """Send an already-sized JPEG to the printer via the platform backend."""
+    _printer_backend.print_image(jpeg_path, copies)
 
 
 def write_log_entry(

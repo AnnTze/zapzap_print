@@ -2,7 +2,6 @@ import os
 import json
 import time
 import asyncio
-import subprocess
 import shutil
 import logging
 from datetime import datetime, timezone, timedelta
@@ -19,6 +18,8 @@ from telegram.ext import (
     filters,
     ContextTypes,
 )
+
+from printing import get_printer_backend, format_queue_text
 
 load_dotenv()
 
@@ -45,6 +46,9 @@ logging.basicConfig(
     level=logging.INFO,
 )
 logger = logging.getLogger(__name__)
+
+# Platform printer backend (CUPS on macOS, pywin32 on Windows), chosen at startup.
+_printer_backend = get_printer_backend()
 
 # ---------------------------------------------------------------------------
 # Session management
@@ -415,8 +419,7 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     today_count = sum(e.get("copies", 0) for e in today_entries)
 
     try:
-        result = subprocess.run(["lpstat", "-o"], capture_output=True, text=True, timeout=5)
-        queue_text = result.stdout.strip() or "Queue empty"
+        queue_text = format_queue_text(_printer_backend.queue()) or "Queue empty"
     except Exception:
         queue_text = "Queue empty"
 
@@ -521,9 +524,9 @@ async def cmd_newpaper(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 async def cmd_queue(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await require_auth(update, context):
         return
-    result = subprocess.run(["lpstat", "-o"], capture_output=True, text=True)
-    output = result.stdout.strip()
-    if output:
+    jobs = _printer_backend.queue()
+    if jobs:
+        output = format_queue_text(jobs)
         await update.effective_message.reply_text(
             f"🖨️ *Print queue:*\n```\n{output}\n```", parse_mode="Markdown"
         )

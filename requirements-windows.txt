@@ -1,0 +1,7 @@
+# Windows-only dependencies. Installs the shared requirements plus pywin32
+# (which is not installable on macOS).
+#
+#   pip install -r requirements-windows.txt
+#
+-r requirements.txt
+pywin32>=306
