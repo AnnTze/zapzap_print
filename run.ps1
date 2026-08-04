@@ -1,4 +1,4 @@
-# ZapZap Photobooth — Windows manual start (equivalent of run.sh)
+# ZapZap Photobooth - Windows manual start (equivalent of run.sh)
 # For development / one-off events. For always-on production use install-autostart.ps1.
 $ErrorActionPreference = "Stop"
 

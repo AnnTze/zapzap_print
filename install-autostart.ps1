@@ -1,4 +1,4 @@
-# ZapZap Photobooth — Windows auto-start via NSSM services (equivalent of install-autostart.sh)
+# ZapZap Photobooth - Windows auto-start via NSSM services (equivalent of install-autostart.sh)
 # Installs the three bots as Windows services that start at boot and restart on crash.
 # Requires: NSSM on PATH (choco install nssm, or https://nssm.cc/) and an ADMIN PowerShell.
 $ErrorActionPreference = "Stop"

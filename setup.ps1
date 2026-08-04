@@ -1,4 +1,4 @@
-# ZapZap Photobooth — Windows setup (equivalent of setup.sh)
+# ZapZap Photobooth - Windows setup (equivalent of setup.sh)
 # Run from PowerShell in the project folder:  .\setup.ps1
 $ErrorActionPreference = "Stop"
 
@@ -79,7 +79,7 @@ if (Test-Path ".env") {
     Ok ".env already exists, skipping. Edit it manually if needed."
 } elseif (Test-Path ".env.example") {
     Copy-Item ".env.example" ".env"
-    Ok ".env created from .env.example — open it and fill in tokens, password, PRINTER_NAME, WINDOWS_PAPER_FORM_NAME."
+    Ok ".env created from .env.example - open it and fill in tokens, password, PRINTER_NAME, WINDOWS_PAPER_FORM_NAME."
 } else {
     Warn ".env.example not found; create .env manually."
 }

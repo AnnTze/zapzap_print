@@ -1,4 +1,4 @@
-# ZapZap Photobooth — remove the Windows auto-start services (equivalent of uninstall-autostart.sh)
+# ZapZap Photobooth - remove the Windows auto-start services (equivalent of uninstall-autostart.sh)
 # Requires an ADMIN PowerShell and NSSM on PATH.
 function Ok($m)   { Write-Host $m -ForegroundColor Green }
 function Warn($m) { Write-Host $m -ForegroundColor Yellow }

@@ -1,4 +1,4 @@
-# ZapZap Photobooth — Windows health check (equivalent of status.sh)
+# ZapZap Photobooth - Windows health check (equivalent of status.sh)
 function Ok($m)   { Write-Host $m -ForegroundColor Green }
 function Warn($m) { Write-Host $m -ForegroundColor Yellow }
 function Err($m)  { Write-Host $m -ForegroundColor Red }

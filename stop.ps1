@@ -1,4 +1,4 @@
-# ZapZap Photobooth — Windows manual stop (equivalent of stop.sh)
+# ZapZap Photobooth - Windows manual stop (equivalent of stop.sh)
 function Ok($m)   { Write-Host $m -ForegroundColor Green }
 function Warn($m) { Write-Host $m -ForegroundColor Yellow }
 
@@ -6,7 +6,7 @@ $ProjectDir = $PSScriptRoot
 Set-Location $ProjectDir
 
 if (-not (Test-Path ".pids")) {
-    Warn "No .pids file found — bots may not be running (or are running as services)."
+    Warn "No .pids file found - bots may not be running (or are running as services)."
     exit 0
 }
 
