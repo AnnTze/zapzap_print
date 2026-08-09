@@ -85,15 +85,30 @@ class WindowsPrinterBackend(PrinterBackend):
 
     # ----------------------------------------------------------------- print
     def print_image(self, image_path: str, copies: int) -> None:
+        img = Image.open(image_path)
+        if img.mode != "RGB":
+            img = img.convert("RGB")
+        img_is_landscape = img.size[0] >= img.size[1]
+
         hprinter = win32print.OpenPrinter(self.printer_name)
         try:
             info = win32print.GetPrinter(hprinter, 2)
             devmode = info["pDevMode"]
             port = info.get("pPortName", "")
             paper_id = self._resolve_paper_id(port)
-            if devmode is not None and paper_id is not None:
-                devmode.PaperSize = paper_id
-                devmode.Fields |= win32con.DM_PAPERSIZE
+            if devmode is not None:
+                if paper_id is not None:
+                    devmode.PaperSize = paper_id
+                    devmode.Fields |= win32con.DM_PAPERSIZE
+                # The driver's stored default orientation (usually Portrait)
+                # otherwise wins regardless of the photo's own shape, which
+                # squeezes/crops landscape photos into a portrait frame.
+                devmode.Orientation = (
+                    win32con.DMORIENT_LANDSCAPE
+                    if img_is_landscape
+                    else win32con.DMORIENT_PORTRAIT
+                )
+                devmode.Fields |= win32con.DM_ORIENTATION
             # Create a device context bound to *this* devmode (per-job, without
             # mutating the printer's global defaults via SetPrinter).
             hdc = win32gui.CreateDC("WINSPOOL", self.printer_name, devmode)
@@ -102,15 +117,28 @@ class WindowsPrinterBackend(PrinterBackend):
 
         dc = win32ui.CreateDCFromHandle(hdc)
         try:
-            img = Image.open(image_path)
-            if img.mode != "RGB":
-                img = img.convert("RGB")
-
             # Fill the full printable area (borderless). bot.fit_to_paper has
-            # already cropped the image to the 10x15 aspect ratio, so scaling to
-            # the printable rectangle keeps the correct framing.
+            # already cropped the image to the 10x15 aspect ratio, but the
+            # driver's printable rect isn't guaranteed to match that ratio
+            # exactly (margins, wrong WINDOWS_PAPER_FORM_NAME, etc). Stretching
+            # straight to (printable_w, printable_h) in that case would distort
+            # the image non-uniformly - most visible on the watermark logo.
+            # Center-crop to the printable rect's own aspect ratio first so the
+            # final draw only ever scales uniformly.
             printable_w = dc.GetDeviceCaps(win32con.HORZRES)
             printable_h = dc.GetDeviceCaps(win32con.VERTRES)
+            img_w, img_h = img.size
+            target_ratio = printable_w / printable_h
+            src_ratio = img_w / img_h
+            if abs(src_ratio - target_ratio) > 1e-3:
+                if src_ratio > target_ratio:
+                    new_w = max(1, round(img_h * target_ratio))
+                    x0 = (img_w - new_w) // 2
+                    img = img.crop((x0, 0, x0 + new_w, img_h))
+                else:
+                    new_h = max(1, round(img_w / target_ratio))
+                    y0 = (img_h - new_h) // 2
+                    img = img.crop((0, y0, img_w, y0 + new_h))
             dib = ImageWin.Dib(img)
 
             dc.StartDoc("ZapZap Photo")

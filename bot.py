@@ -35,7 +35,7 @@ MAX_COPIES = MAX_PRINTS_PER_MESSAGE
 WATERMARK_PATH = os.getenv("WATERMARK_PATH", "watermark.png")
 WATERMARK_OPACITY = float(os.getenv("WATERMARK_OPACITY", "0.35"))
 WATERMARK_SCALE = float(os.getenv("WATERMARK_SCALE", "0.6"))  # fraction of shorter canvas side
-WATERMARK_MARGIN = float(os.getenv("WATERMARK_MARGIN", "0.05"))  # bottom gap, fraction of canvas height
+WATERMARK_MARGIN = float(os.getenv("WATERMARK_MARGIN", "0.05"))  # edge gap, fraction of canvas width/height
 # --------------
 
 logging.basicConfig(
@@ -177,7 +177,7 @@ def get_watermark() -> Image.Image | None:
 
 
 def apply_watermark(img: Image.Image) -> Image.Image:
-    """Composite the logo, bottom-centered and semi-transparent, onto the print canvas."""
+    """Composite the logo, bottom-right and semi-transparent, onto the print canvas."""
     watermark = get_watermark()
     if watermark is None:
         return img
@@ -193,8 +193,10 @@ def apply_watermark(img: Image.Image) -> Image.Image:
         wm.putalpha(alpha)
 
     base = img.convert("RGBA")
-    offset_x = (canvas_w - new_w) // 2
-    offset_y = max(0, canvas_h - new_h - int(canvas_h * WATERMARK_MARGIN))
+    margin_x = int(canvas_w * WATERMARK_MARGIN)
+    margin_y = int(canvas_h * WATERMARK_MARGIN)
+    offset_x = max(0, canvas_w - new_w - margin_x)
+    offset_y = max(0, canvas_h - new_h - margin_y)
     base.alpha_composite(wm, (offset_x, offset_y))
     return base.convert("RGB")
 
