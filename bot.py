@@ -31,6 +31,11 @@ GALLERY_CHANNEL_ID = os.getenv("GALLERY_CHANNEL_ID", "")
 GALLERY_LOG_FILE = os.getenv("GALLERY_LOG_FILE", "gallery_log.jsonl")
 MAX_PRINTS_PER_MESSAGE = int(os.getenv("MAX_PRINTS_PER_MESSAGE", "5"))
 MAX_COPIES = MAX_PRINTS_PER_MESSAGE
+# Logo/image composited onto every printed photo (not applied to the gallery copy).
+WATERMARK_PATH = os.getenv("WATERMARK_PATH", "watermark.png")
+WATERMARK_OPACITY = float(os.getenv("WATERMARK_OPACITY", "0.35"))
+WATERMARK_SCALE = float(os.getenv("WATERMARK_SCALE", "0.6"))  # fraction of shorter canvas side
+WATERMARK_MARGIN = float(os.getenv("WATERMARK_MARGIN", "0.05"))  # bottom gap, fraction of canvas height
 # --------------
 
 logging.basicConfig(
@@ -149,6 +154,57 @@ def fit_to_paper(img: Image.Image) -> Image.Image:
     offset_x = (new_w - canvas_w) // 2
     offset_y = (new_h - canvas_h) // 2
     return img.crop((offset_x, offset_y, offset_x + canvas_w, offset_y + canvas_h))
+
+
+_watermark_img: Image.Image | None = None
+_watermark_load_attempted = False
+
+
+def get_watermark() -> Image.Image | None:
+    """Load and cache the watermark image. Returns None (and logs once) if unavailable."""
+    global _watermark_img, _watermark_load_attempted
+    if _watermark_load_attempted:
+        return _watermark_img
+    _watermark_load_attempted = True
+    if WATERMARK_PATH and os.path.exists(WATERMARK_PATH):
+        try:
+            _watermark_img = Image.open(WATERMARK_PATH).convert("RGBA")
+        except Exception:
+            logger.exception("Failed to load watermark image at %s", WATERMARK_PATH)
+    else:
+        logger.warning("WATERMARK_PATH %s not found; printing without watermark", WATERMARK_PATH)
+    return _watermark_img
+
+
+def apply_watermark(img: Image.Image) -> Image.Image:
+    """Composite the logo, bottom-centered and semi-transparent, onto the print canvas."""
+    watermark = get_watermark()
+    if watermark is None:
+        return img
+
+    canvas_w, canvas_h = img.size
+    wm_w, wm_h = watermark.size
+    scale = (min(canvas_w, canvas_h) * WATERMARK_SCALE) / max(wm_w, wm_h)
+    new_w, new_h = max(1, int(wm_w * scale)), max(1, int(wm_h * scale))
+    wm = watermark.resize((new_w, new_h), Image.LANCZOS)
+
+    if WATERMARK_OPACITY < 1.0:
+        alpha = wm.split()[3].point(lambda a: int(a * WATERMARK_OPACITY))
+        wm.putalpha(alpha)
+
+    base = img.convert("RGBA")
+    offset_x = (canvas_w - new_w) // 2
+    offset_y = max(0, canvas_h - new_h - int(canvas_h * WATERMARK_MARGIN))
+    base.alpha_composite(wm, (offset_x, offset_y))
+    return base.convert("RGB")
+
+
+async def send_print_preview(message, img: Image.Image) -> None:
+    """Reply with the final watermarked photo, exactly as it goes to the printer."""
+    preview_buf = BytesIO()
+    img.save(preview_buf, "JPEG", quality=90)
+    preview_buf.seek(0)
+    await message.reply_photo(preview_buf, caption="Here's your print!")
 
 
 # Platform printer backend (CUPS on macOS, pywin32 on Windows), chosen at startup.
@@ -400,6 +456,8 @@ async def process_single_photo(update: Update, context: ContextTypes.DEFAULT_TYP
             img = img.convert("RGB")
         img = fix_exif_rotation(img)
         img = fit_to_paper(img)
+        img = apply_watermark(img)
+        await send_print_preview(message, img)
 
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
             tmp_path = tmp.name
@@ -484,6 +542,8 @@ async def process_album(media_group_id: str, context: ContextTypes.DEFAULT_TYPE)
                 img = img.convert("RGB")
             img = fix_exif_rotation(img)
             img = fit_to_paper(img)
+            img = apply_watermark(img)
+            await send_print_preview(upd.effective_message, img)
 
             with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
                 tmp_path = tmp.name
