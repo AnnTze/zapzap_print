@@ -36,6 +36,8 @@ WATERMARK_PATH = os.getenv("WATERMARK_PATH", "watermark.png")
 WATERMARK_OPACITY = float(os.getenv("WATERMARK_OPACITY", "0.35"))
 WATERMARK_SCALE = float(os.getenv("WATERMARK_SCALE", "0.6"))  # fraction of shorter canvas side
 WATERMARK_MARGIN = float(os.getenv("WATERMARK_MARGIN", "0.05"))  # edge gap, fraction of canvas width/height
+# One of: bottom-right, bottom-left, top-right, top-left, center.
+WATERMARK_POSITION = os.getenv("WATERMARK_POSITION", "bottom-right").strip().lower()
 # --------------
 
 logging.basicConfig(
@@ -176,8 +178,28 @@ def get_watermark() -> Image.Image | None:
     return _watermark_img
 
 
+_WATERMARK_POSITIONS = {
+    "bottom-right", "bottom-left", "top-right", "top-left", "center",
+}
+
+
+def _watermark_offset(position: str, canvas_w: int, canvas_h: int, new_w: int, new_h: int) -> tuple[int, int]:
+    margin_x = int(canvas_w * WATERMARK_MARGIN)
+    margin_y = int(canvas_h * WATERMARK_MARGIN)
+    if position == "bottom-left":
+        return margin_x, max(0, canvas_h - new_h - margin_y)
+    if position == "top-right":
+        return max(0, canvas_w - new_w - margin_x), margin_y
+    if position == "top-left":
+        return margin_x, margin_y
+    if position == "center":
+        return (canvas_w - new_w) // 2, (canvas_h - new_h) // 2
+    # default: bottom-right
+    return max(0, canvas_w - new_w - margin_x), max(0, canvas_h - new_h - margin_y)
+
+
 def apply_watermark(img: Image.Image) -> Image.Image:
-    """Composite the logo, bottom-right and semi-transparent, onto the print canvas."""
+    """Composite the logo onto the print canvas at WATERMARK_POSITION."""
     watermark = get_watermark()
     if watermark is None:
         return img
@@ -195,10 +217,7 @@ def apply_watermark(img: Image.Image) -> Image.Image:
         wm.putalpha(alpha)
 
     base = img.convert("RGBA")
-    margin_x = int(canvas_w * WATERMARK_MARGIN)
-    margin_y = int(canvas_h * WATERMARK_MARGIN)
-    offset_x = max(0, canvas_w - new_w - margin_x)
-    offset_y = max(0, canvas_h - new_h - margin_y)
+    offset_x, offset_y = _watermark_offset(WATERMARK_POSITION, canvas_w, canvas_h, new_w, new_h)
     base.alpha_composite(wm, (offset_x, offset_y))
     return base.convert("RGB")
 
@@ -389,36 +408,24 @@ PAUSED_REPLY_TEMPLATE = (
 )
 
 
-INSTRUCTIONS = f"""📸 *Photo Print Bot — How to Use*
+def _load_instructions() -> str:
+    """Load the /start message from instructions.txt so it's editable without
+    touching Python or MarkdownV2 escaping. Falls back to a plain notice if
+    the file is missing so /start never crashes the bot."""
+    path = Path(__file__).parent / "instructions.txt"
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        logger.warning("instructions.txt not found; using fallback /start message")
+        return "Send a photo to print it. (instructions.txt is missing)"
+    return text.replace("{{MAX_PRINTS_PER_MESSAGE}}", str(MAX_PRINTS_PER_MESSAGE))
 
-Send a photo to print it on a 4x6 \(10x15 cm\) photo paper\.
 
-*Single photo*
-Just send a photo — prints 1 copy automatically\.
-Add a caption to choose copies: `3` · `3x` · `x3`
-
-*Multiple photos \(album\)*
-Select several photos and send them together as an album\.
-• No caption → 1 copy each
-• `3` → 3 copies each
-• `3,5,1` → photo 1 \= 3 copies, photo 2 \= 5, photo 3 \= 1
-The number of values must match the number of photos\.
-
-Maximum is {MAX_PRINTS_PER_MESSAGE} total prints per message\.
-
-*Tips*
-• Portrait and landscape photos are both supported\.
-• You can send photos normally or as a file/document — both work\.
-• The bot confirms your job then replies "Done\!" when finished\.
-• If something goes wrong, the bot will reply with an error message\.
-
-*What NOT to do*
-• Do not send videos, stickers, or other file types\.
-• Captions that are not a number default to 1 copy\."""
+INSTRUCTIONS = _load_instructions()
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.effective_message.reply_text(INSTRUCTIONS, parse_mode="MarkdownV2")
+    await update.effective_message.reply_text(INSTRUCTIONS, parse_mode="Markdown")
 
 
 async def process_single_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

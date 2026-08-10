@@ -1,7 +1,7 @@
 """macOS / CUPS printer backend.
 
-Pure refactor of the printing logic that previously lived inline in bot.py
-(`lpr`) and monitor.py (`lpstat -o`). Behaviour on macOS is unchanged.
+Refactor of the printing logic that previously lived inline in bot.py
+(`lpr`) and monitor.py (`lpstat -o`).
 """
 
 from __future__ import annotations
@@ -18,9 +18,17 @@ class CupsPrinterBackend(PrinterBackend):
         self.media = media
 
     def print_image(self, image_path: str, copies: int) -> None:
-        # Mirrors the original bot.py send_to_printer():
-        #   lpr -# <copies> -o media=<media> -o fit-to-page [-P <printer>] <file>
-        cmd = ["lpr", "-#", str(copies), "-o", f"media={self.media}", "-o", "fit-to-page"]
+        # print-scaling=fill crops to the driver's real printable-area aspect
+        # ratio and fills it edge-to-edge, mirroring what windows_backend.py
+        # does manually via GetDeviceCaps. The old fit-to-page instead
+        # letterboxes (scales the whole image down, no cropping), which left
+        # a different effective margin than Windows whenever the printable
+        # rect wasn't exactly 3:2 - most visible on the watermark's size.
+        cmd = [
+            "lpr", "-#", str(copies),
+            "-o", f"media={self.media}",
+            "-o", "print-scaling=fill",
+        ]
         if self.printer_name:
             cmd += ["-P", self.printer_name]
         cmd.append(image_path)

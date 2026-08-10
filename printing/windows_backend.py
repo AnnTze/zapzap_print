@@ -11,6 +11,8 @@ Install deps with:  pip install -r requirements-windows.txt
 
 from __future__ import annotations
 
+import logging
+
 try:
     import win32con
     import win32gui
@@ -25,6 +27,8 @@ except ImportError as exc:  # pragma: no cover - Windows only
 from PIL import Image, ImageWin
 
 from .base import PrinterBackend, QueueJob
+
+logger = logging.getLogger(__name__)
 
 # Printer status bits (defined locally so we don't depend on their presence in a
 # particular pywin32 build's constants).
@@ -130,6 +134,10 @@ class WindowsPrinterBackend(PrinterBackend):
             img_w, img_h = img.size
             target_ratio = printable_w / printable_h
             src_ratio = img_w / img_h
+            logger.info(
+                "print geometry: printable=%dx%d (ratio=%.4f) image=%dx%d (ratio=%.4f)",
+                printable_w, printable_h, target_ratio, img_w, img_h, src_ratio,
+            )
             if abs(src_ratio - target_ratio) > 1e-3:
                 if src_ratio > target_ratio:
                     new_w = max(1, round(img_h * target_ratio))
