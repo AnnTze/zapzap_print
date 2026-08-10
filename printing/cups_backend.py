@@ -18,16 +18,17 @@ class CupsPrinterBackend(PrinterBackend):
         self.media = media
 
     def print_image(self, image_path: str, copies: int) -> None:
-        # print-scaling=fill crops to the driver's real printable-area aspect
-        # ratio and fills it edge-to-edge, mirroring what windows_backend.py
-        # does manually via GetDeviceCaps. The old fit-to-page instead
-        # letterboxes (scales the whole image down, no cropping), which left
-        # a different effective margin than Windows whenever the printable
-        # rect wasn't exactly 3:2 - most visible on the watermark's size.
+        # MEMarginCutOff is the Mitsubishi CP-D90DW driver's own borderless
+        # option (default False) - the printer physically trims the
+        # unprintable margin strip after printing. The generic CUPS
+        # print-scaling=fill option doesn't control this on vendor drivers
+        # like this one, which is why prints still had a white border with
+        # it set - MEMarginCutOff=True is the actual switch.
         cmd = [
             "lpr", "-#", str(copies),
             "-o", f"media={self.media}",
             "-o", "print-scaling=fill",
+            "-o", "MEMarginCutOff=True",
         ]
         if self.printer_name:
             cmd += ["-P", self.printer_name]
