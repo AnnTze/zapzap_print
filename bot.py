@@ -626,7 +626,7 @@ def main() -> None:
     app.add_handler(CommandHandler("start", start))
     app.add_handler(
         MessageHandler(
-            (filters.PHOTO | filters.Document.IMAGE),
+            (filters.PHOTO | filters.Document.IMAGE) & ~filters.UpdateType.EDITED_MESSAGE,
             handle_image,
         )
     )
