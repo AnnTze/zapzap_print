@@ -188,8 +188,10 @@ def apply_watermark(img: Image.Image) -> Image.Image:
     new_w, new_h = max(1, int(wm_w * scale)), max(1, int(wm_h * scale))
     wm = watermark.resize((new_w, new_h), Image.LANCZOS)
 
-    if WATERMARK_OPACITY < 1.0:
-        alpha = wm.split()[3].point(lambda a: int(a * WATERMARK_OPACITY))
+    if WATERMARK_OPACITY != 1.0:
+        # >1.0 boosts alpha to push faint/anti-aliased edges (e.g. thin lines
+        # softened by the resize above) back toward fully opaque/dark.
+        alpha = wm.split()[3].point(lambda a: min(255, int(a * WATERMARK_OPACITY)))
         wm.putalpha(alpha)
 
     base = img.convert("RGBA")
