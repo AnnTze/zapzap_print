@@ -23,8 +23,13 @@ BOT_TOKEN = os.getenv("PRINT_BOT_TOKEN", "")
 # Target printer. Set PRINTER_NAME in .env; falls back to the original
 # hardcoded value so existing macOS deployments keep working unchanged.
 PRINTER_NAME = os.getenv("PRINTER_NAME", "MITSUBISHI_CPD90D")
-PAPER_W_PX = 1772   # landscape width at 300 DPI (15 cm / ME_10x15)
-PAPER_H_PX = 1181   # landscape height at 300 DPI (10 cm / ME_10x15)
+# Sized to the Mitsubishi CP-D90DW driver's actual ME_10x15 PageSize/ImageableArea
+# (445x295pt per the PPD), not the nominal 15x10cm - ME_10x15 is a full-bleed
+# template intentionally larger than the trimmed final size, so MEMarginCutOff
+# has excess to physically cut off. Using the nominal 1772x1181 (15/10cm @300dpi)
+# undersized the canvas by 82x48px, leaving a white border on Mac prints.
+PAPER_W_PX = 1854   # landscape width at 300 DPI (445pt / 72 * 300, ME_10x15)
+PAPER_H_PX = 1229   # landscape height at 300 DPI (295pt / 72 * 300, ME_10x15)
 LOG_FILE = os.getenv("LOG_FILE", "print_log.jsonl")
 GALLERY_BOT_TOKEN = os.getenv("GALLERY_BOT_TOKEN", "")
 GALLERY_CHANNEL_ID = os.getenv("GALLERY_CHANNEL_ID", "")
