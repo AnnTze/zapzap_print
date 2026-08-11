@@ -473,25 +473,36 @@ async def process_single_photo(update: Update, context: ContextTypes.DEFAULT_TYP
         img = fix_exif_rotation(img)
         img = fit_to_paper(img)
         img = apply_watermark(img)
-        await send_print_preview(message, img)
 
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
             tmp_path = tmp.name
             img.save(tmp_path, "JPEG", quality=95, dpi=(300, 300))
 
+        # Print before sending the Telegram preview - the preview is a network
+        # call that can time out on a slow/flaky connection, and if it did
+        # first, the exception would abort before the print ever got sent,
+        # even though the job is otherwise fine. Printing first means a
+        # flaky preview send can no longer skip the actual print.
         try:
             send_to_printer(tmp_path, copies)
         finally:
             os.unlink(tmp_path)
 
         increment_supply_used(copies)
-        await message.reply_text("Done!")
         append_print_log(user, photo_file_id, copies, "success", None)
 
     except Exception as e:
         logger.exception("Print failed")
         await message.reply_text(f"Error: {e}")
         return
+
+    # Preview/"Done!" are user-facing confirmation, not the print itself - a
+    # timeout here must not read as a failure when the print already happened.
+    try:
+        await send_print_preview(message, img)
+        await message.reply_text("Done!")
+    except Exception:
+        logger.exception("Preview/Done reply failed (print itself already succeeded)")
 
     # Gallery-channel repost is logging, not the print itself - a failure here
     # (e.g. a network timeout) must never overwrite the "success" already
@@ -566,12 +577,13 @@ async def process_album(media_group_id: str, context: ContextTypes.DEFAULT_TYPE)
             img = fix_exif_rotation(img)
             img = fit_to_paper(img)
             img = apply_watermark(img)
-            await send_print_preview(upd.effective_message, img)
 
             with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as tmp:
                 tmp_path = tmp.name
                 img.save(tmp_path, "JPEG", quality=95, dpi=(300, 300))
 
+            # Print before sending the Telegram preview - see the matching
+            # comment in process_single_photo for why.
             try:
                 send_to_printer(tmp_path, copies)
             finally:
@@ -588,6 +600,16 @@ async def process_album(media_group_id: str, context: ContextTypes.DEFAULT_TYPE)
                 f"Photo {i + 1} of {photo_count} failed: {e}"
             )
             continue
+
+        # Preview is user-facing confirmation, not the print itself - a
+        # timeout here must not mark an otherwise-successful photo failed.
+        try:
+            await send_print_preview(upd.effective_message, img)
+        except Exception:
+            logger.exception(
+                "Preview failed for photo %d/%d (print itself already succeeded)",
+                i + 1, photo_count,
+            )
 
         # Gallery-channel repost is logging, not the print itself - a failure
         # here (e.g. a network timeout) must never overwrite the "success"
@@ -645,7 +667,17 @@ def main() -> None:
     if not BOT_TOKEN:
         raise SystemExit("Set PRINT_BOT_TOKEN in .env before running.")
 
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    # PTB's default timeouts (~5s) are too tight for photo up/downloads on a
+    # slow or congested venue connection, causing requests that would have
+    # succeeded to be aborted as TimedOut. Bump them to tolerate that.
+    app = (
+        ApplicationBuilder()
+        .token(BOT_TOKEN)
+        .connect_timeout(20)
+        .read_timeout(30)
+        .write_timeout(30)
+        .build()
+    )
     app.add_handler(CommandHandler("start", start))
     app.add_handler(
         MessageHandler(
