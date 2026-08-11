@@ -487,12 +487,20 @@ async def process_single_photo(update: Update, context: ContextTypes.DEFAULT_TYP
         increment_supply_used(copies)
         await message.reply_text("Done!")
         append_print_log(user, photo_file_id, copies, "success", None)
-        buf.seek(0)
-        await post_to_gallery_channel(buf.read(), user, copies)
 
     except Exception as e:
         logger.exception("Print failed")
         await message.reply_text(f"Error: {e}")
+        return
+
+    # Gallery-channel repost is logging, not the print itself - a failure here
+    # (e.g. a network timeout) must never overwrite the "success" already
+    # logged above, or send the user a confusing error after "Done!".
+    try:
+        buf.seek(0)
+        await post_to_gallery_channel(buf.read(), user, copies)
+    except Exception:
+        logger.exception("Gallery repost failed (print itself already succeeded)")
         append_print_log(user, photo_file_id, copies, "failed", str(e))
 
 
@@ -572,8 +580,6 @@ async def process_album(media_group_id: str, context: ContextTypes.DEFAULT_TYPE)
 
             increment_supply_used(copies)
             append_print_log(user, photo.file_id, copies, "success", None)
-            buf.seek(0)
-            await post_to_gallery_channel(buf.read(), user, copies)
 
         except Exception as e:
             logger.exception("Album photo %d/%d failed", i + 1, photo_count)
@@ -581,6 +587,19 @@ async def process_album(media_group_id: str, context: ContextTypes.DEFAULT_TYPE)
             append_print_log(user, photo.file_id, copies, "failed", str(e))
             await updates[0].effective_message.reply_text(
                 f"Photo {i + 1} of {photo_count} failed: {e}"
+            )
+            continue
+
+        # Gallery-channel repost is logging, not the print itself - a failure
+        # here (e.g. a network timeout) must never overwrite the "success"
+        # already logged above, or mark an otherwise-successful photo failed.
+        try:
+            buf.seek(0)
+            await post_to_gallery_channel(buf.read(), user, copies)
+        except Exception:
+            logger.exception(
+                "Gallery repost failed for photo %d/%d (print itself already succeeded)",
+                i + 1, photo_count,
             )
 
     if all_success:
