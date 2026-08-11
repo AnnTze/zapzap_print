@@ -501,7 +501,6 @@ async def process_single_photo(update: Update, context: ContextTypes.DEFAULT_TYP
         await post_to_gallery_channel(buf.read(), user, copies)
     except Exception:
         logger.exception("Gallery repost failed (print itself already succeeded)")
-        append_print_log(user, photo_file_id, copies, "failed", str(e))
 
 
 async def process_album(media_group_id: str, context: ContextTypes.DEFAULT_TYPE) -> None:
