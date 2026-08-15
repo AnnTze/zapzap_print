@@ -12,6 +12,13 @@ A three-bot Telegram photobooth print system running on macOS:
 
 Dependencies: `python-telegram-bot==21.6`, `pillow>=10.0`, `python-dotenv>=1.0`.
 
+**Mixed Mac/Windows fleets**: never use strftime's `%-d` (or any `%-` flag) —
+it is a glibc/BSD extension that raises `ValueError` on Windows, where the
+spelling is `%#d`. No single format string works on both, so use
+`datefmt.fmt_date` / `datefmt.fmt_datetime`, which build the day number in
+Python and only ask strftime for `%b`/`%Y`. Same rule for file locking: use
+`supply_lock.locked()`, never `fcntl` directly.
+
 **Python version**: 3.9–3.13 (3.12 recommended). **Python 3.14 is not supported** — `python-telegram-bot 21.6` calls `asyncio.get_event_loop()` which was removed in 3.14, causing the bots to crash on startup. `setup.sh` enforces this.
 
 ## File structure

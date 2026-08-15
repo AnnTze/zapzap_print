@@ -7,6 +7,7 @@ from datetime import datetime, timezone, timedelta
 from io import BytesIO
 from pathlib import Path
 
+from datefmt import fmt_datetime
 from dotenv import load_dotenv
 from telegram import Update, Bot
 from telegram.ext import (
@@ -182,7 +183,7 @@ def _fmt_reset(block: dict) -> str:
     if not ts:
         return "never"
     try:
-        ts_str = datetime.fromisoformat(ts).astimezone().strftime("%-d %b %Y %H:%M")
+        ts_str = fmt_datetime(datetime.fromisoformat(ts).astimezone())
     except Exception:
         ts_str = ts
     return f"{ts_str} by {by}"
@@ -321,7 +322,7 @@ async def cmd_history(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     for e in recent:
         try:
             ts = datetime.fromisoformat(e["timestamp"]).astimezone()
-            ts_str = ts.strftime("%-d %b %Y %H:%M")
+            ts_str = fmt_datetime(ts)
         except Exception:
             ts_str = e.get("timestamp", "?")
         icon = "✅" if e.get("status") == "success" else "❌"
@@ -347,7 +348,7 @@ async def cmd_lastphoto(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
                 buf.seek(0)
                 try:
                     ts = datetime.fromisoformat(entry["timestamp"]).astimezone()
-                    ts_str = ts.strftime("%-d %b %Y %H:%M")
+                    ts_str = fmt_datetime(ts)
                 except Exception:
                     ts_str = entry.get("timestamp", "?")
                 await context.bot.send_photo(
@@ -536,7 +537,7 @@ async def cmd_newribbon(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         ]
 
     state = _with_supply_lock(modifier)
-    now_local = datetime.fromisoformat(now_iso).astimezone().strftime("%-d %b %Y %H:%M")
+    now_local = fmt_datetime(datetime.fromisoformat(now_iso).astimezone())
     await update.effective_message.reply_text(
         "New ribbon loaded!\n"
         f"Capacity: {capacity} prints\n"
@@ -577,7 +578,7 @@ async def cmd_newpaper(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         ]
 
     state = _with_supply_lock(modifier)
-    now_local = datetime.fromisoformat(now_iso).astimezone().strftime("%-d %b %Y %H:%M")
+    now_local = fmt_datetime(datetime.fromisoformat(now_iso).astimezone())
     await update.effective_message.reply_text(
         "Paper reloaded!\n"
         f"Sheets loaded: {count}\n"
@@ -809,7 +810,13 @@ async def daily_rotation_task() -> None:
             hour=0, minute=0, second=0, microsecond=0
         )
         await asyncio.sleep((tomorrow - now).total_seconds())
-        rotate_log_if_needed()
+        try:
+            rotate_log_if_needed()
+        except Exception:
+            # On Windows os.replace fails if bot.py happens to have the log open
+            # for its append. Losing one night's rotation is survivable; losing
+            # the task that also clears .ink_alerted every month is not.
+            logger.exception("Log rotation failed; will retry tomorrow")
 
 
 # ---------------------------------------------------------------------------

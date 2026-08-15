@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
 
+from datefmt import fmt_datetime
 from dotenv import load_dotenv
 from PIL import Image, ImageOps
 from telegram import Bot, Update
@@ -314,7 +315,7 @@ async def post_to_channel(file_bytes: bytes, user_name: str, copies: int) -> str
         gbot = await _get_gallery_bot()
         if gbot is None:
             return None
-        ts_str = datetime.now().strftime("%-d %b %Y, %H:%M")
+        ts_str = fmt_datetime(datetime.now(), comma=True)
         caption = f"📸 {user_name} • {ts_str}"
         if copies > 1:
             caption += f" • {copies} copies"

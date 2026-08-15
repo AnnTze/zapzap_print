@@ -4,6 +4,7 @@ import logging
 from collections import Counter, defaultdict
 from datetime import datetime, timezone, timedelta
 
+from datefmt import fmt_date, fmt_datetime
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import (
@@ -104,7 +105,7 @@ def read_gallery_entries() -> list[dict]:
 
 def fmt_ts(ts_str: str) -> str:
     try:
-        return datetime.fromisoformat(ts_str).astimezone().strftime("%-d %b %Y, %H:%M")
+        return fmt_datetime(datetime.fromisoformat(ts_str).astimezone(), comma=True)
     except Exception:
         return ts_str
 
@@ -216,7 +217,7 @@ async def cmd_gallery(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         lines = []
         for day in sorted(date_counts.keys(), reverse=True):
             try:
-                label = datetime.strptime(day, "%Y-%m-%d").strftime("%-d %b %Y")
+                label = fmt_date(datetime.strptime(day, "%Y-%m-%d"))
             except ValueError:
                 label = day
             count = date_counts[day]
@@ -234,7 +235,7 @@ async def cmd_gallery(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     target_prefix = target.isoformat()
     matched = [e for e in entries if e.get("timestamp", "").startswith(target_prefix)]
-    label = target.strftime("%-d %b %Y")
+    label = fmt_date(target)
 
     if not matched:
         await update.effective_message.reply_text(f"No photos on {label}.")
