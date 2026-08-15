@@ -1,3 +1,5 @@
 python-telegram-bot==21.6
 pillow>=10.0
 python-dotenv>=1.0
+# httpx is already pulled in by python-telegram-bot; hubclient uses it directly
+# so the booth needs no extra dependency for hub telemetry.
