@@ -193,3 +193,36 @@ The bots share state through files in the working directory:
 ```
 
 `monitor.py` `/stats` and `/users` read current + all archived print logs. `/today` and `/history` read current only. `/ink` counts current log only (resets on rotation).
+
+## Hub and dashboard (optional)
+
+A booth with no `HUB_URL` set behaves exactly as it always has — the hub is
+never in the print path. When configured, `monitor.py` posts a snapshot of this
+booth to the hub every 10 s and the hub renders a dashboard.
+
+```bash
+# On the hub machine
+python -m hub.main add-printer "Booth A"   # prints PRINTER_ID + PRINTER_API_KEY
+python -m hub.main add-event "Sarah & Tom"
+python -m hub.main assign <printer_id> <event_id>
+python -m hub.main serve                   # dashboard at http://HUB_BIND:HUB_PORT
+python -m hub.main printers                # status from the terminal
+
+# On each booth Mac, in .env
+HUB_URL=http://<hub-tailscale-address>:8080
+PRINTER_API_KEY=<key printed by add-printer>
+```
+
+| Piece | Role |
+|---|---|
+| `hub/` | Server. sqlite + aiohttp + dashboard. **Never imports PIL or `printing/`** |
+| `hubclient/` | Booth side, imported by `monitor.py`. **Never imports telegram**. Uses httpx (already a PTB dependency) |
+| `tests/test_boundaries.py` | Enforces both rules above — run it after touching either package |
+
+Telemetry is **snapshot, not event stream**: each heartbeat carries current
+truth, so a missed beat costs nothing and needs no spool. Keep it that way when
+adding fields — anything cumulative (e.g. shipping individual print records)
+needs store-and-forward to survive a wifi drop.
+
+`HUB_BIND` defaults to `127.0.0.1`. Set it to the hub's Tailscale address to
+reach the dashboard from a phone without exposing it on venue wifi.

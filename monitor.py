@@ -18,6 +18,7 @@ from telegram.ext import (
     ContextTypes,
 )
 
+import hubclient
 from supply_lock import locked
 from printing import get_printer_backend, format_queue_text
 
@@ -785,6 +786,22 @@ async def poll_log(app: Application) -> None:
                 await check_auto_pause(app)
 
 
+# ---------------------------------------------------------------------------
+# Hub telemetry (optional — a booth with no HUB_URL behaves exactly as before)
+# ---------------------------------------------------------------------------
+
+def build_hub_payload() -> dict:
+    """Snapshot this booth for the hub. Runs in a thread — it shells out."""
+    return hubclient.collect(
+        _printer_backend,
+        log_file=LOG_FILE,
+        supply_file=SUPPLY_FILE,
+        pause_file=PAUSE_FILE,
+        auto_pause_file=AUTO_PAUSE_FILE,
+        printer_name=os.getenv("PRINTER_NAME", ""),
+    )
+
+
 async def daily_rotation_task() -> None:
     while True:
         now = datetime.now()
@@ -810,6 +827,14 @@ async def post_init(app: Application) -> None:
             last_line_count = sum(1 for line in f if line.strip())
     asyncio.create_task(poll_log(app))
     asyncio.create_task(daily_rotation_task())
+
+    hub = hubclient.from_env()
+    if hub is not None:
+        app.bot_data["hub_client"] = hub
+        asyncio.create_task(hubclient.heartbeat_loop(hub, build_hub_payload))
+        logger.info("Hub telemetry enabled: %s", hub.hub_url)
+    else:
+        logger.info("Hub telemetry disabled (HUB_URL not set) — running standalone")
     if Path(PAUSE_FILE).exists():
         try:
             reason = Path(PAUSE_FILE).read_text().strip() or DEFAULT_PAUSE_REASON

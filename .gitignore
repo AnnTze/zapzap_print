@@ -1,5 +1,6 @@
 # Secrets
 .env
+hub.env
 
 # Runtime state
 .sessions
@@ -10,6 +11,11 @@
 .supply_state
 .supply_lock
 .pids
+
+# Hub database (live data)
+hub.db
+hub.db-wal
+hub.db-shm
 
 # Logs (live data, not source code)
 print_log.jsonl
