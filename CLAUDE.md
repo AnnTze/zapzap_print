@@ -35,6 +35,7 @@ Python and only ask strftime for `%b`/`%Y`. Same rule for file locking: use
 ├── uninstall-autostart.sh             # Remove launchd agents
 │
 ├── DEPLOY.md                          # Step-by-step new-Mac guide
+├── HUB_SETUP.md                       # Tailscale + hub + booth telemetry setup
 ├── USER_GUIDE.md                      # End-user "how to send a photo" guide
 │
 ├── logs/                              # Bot stdout/stderr + monthly archived print logs
