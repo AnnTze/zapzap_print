@@ -303,14 +303,16 @@ async def cmd_count(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         f"  {i}. {name} — {count}" for i, (name, count) in enumerate(top5, start=1)
     )
 
+    # Plain text: Telegram rejects the whole message if a user_name contains
+    # Markdown syntax (e.g. "Ben_10"), which silently swallowed the reply.
     msg = (
-        f"📷 *Gallery count*\n"
+        f"📷 Gallery count\n"
         f"Total photos: {total}\n\n"
         f"This month: {this_month_count}\n"
         f"Last month: {last_month_count}\n\n"
-        f"*Top 5 photographers*\n{top5_lines}"
+        f"Top 5 photographers\n{top5_lines}"
     )
-    await update.effective_message.reply_text(msg, parse_mode="Markdown")
+    await update.effective_message.reply_text(msg)
 
 
 async def cmd_more(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -327,18 +329,18 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await require_auth(update, context):
         return
     text = (
-        "*Gallery Bot Commands*\n"
-        "/latest \\[N\\] — last N photos (default 10, max 20)\n"
-        "/gallery \\[date\\] — photos on a date, or list all dates\n"
-        "/photos \\[name\\] — photos by a person, or full leaderboard\n"
+        "GALLERY BOT COMMANDS\n\n"
+        "/latest [N] — last N photos (default 10, max 20)\n"
+        "/gallery [date] — photos on a date, or list all dates\n"
+        "/photos [name] — photos by a person, or full leaderboard\n"
         "/count — total photos, top 5 users, this vs last month\n"
         "/more — continue paginated results\n"
         "/logout — end your session\n"
         "/help — show this message\n\n"
-        "Date formats: `25Apr` `25Apr2026` `25 Apr` `25 Apr 2026`\n"
-        "Name formats: `Darren` or `@darren` (case-insensitive)"
+        "Date formats: 25Apr, 25Apr2026, 25 Apr, 25 Apr 2026\n"
+        "Name formats: Darren or @darren (case-insensitive)"
     )
-    await update.effective_message.reply_text(text, parse_mode="Markdown")
+    await update.effective_message.reply_text(text)
 
 
 async def cmd_logout(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

@@ -36,8 +36,12 @@ Dependencies: `python-telegram-bot==21.6`, `pillow>=10.0`, `python-dotenv>=1.0`.
 ├── print_log.jsonl                    # One JSON line per print attempt
 ├── gallery_log.jsonl                  # One JSON line per successful print
 ├── .pids                              # PIDs from ./run.sh (auto-managed)
+├── supply_lock.py                     # Cross-platform flock/msvcrt guard for .supply_state
 ├── .sessions / .gallery_sessions      # Persisted bot auth sessions
-└── .ink_alerted                       # Flag: low-ink alert sent for current ribbon
+├── .bot_paused                        # Present = paused; contents = reason
+├── .bot_paused_auto                   # Present = the pause was automatic (empty supply)
+├── .supply_state / .supply_lock       # Ribbon + paper counters, and their lock file
+└── .ink_alerted                       # Legacy flag, only cleared by log rotation
 ```
 
 ## Commands
@@ -94,7 +98,8 @@ Hardcoded in `bot.py` (edit the file to change):
 |---|---|---|
 | `PRINTER_NAME` | `"MITSUBISHI_CPD90D"` | Target CUPS printer (`None` = system default) |
 | `PAPER_W_PX` / `PAPER_H_PX` | `1772` / `1181` | Canvas at 300 DPI for 10×15 cm |
-| `MAX_COPIES` | `20` | Cap on copies per photo |
+| `MAX_COPIES` | = `MAX_PRINTS_PER_MESSAGE` | Cap on copies per photo |
+| `RIBBON_CAPACITY` / `DEFAULT_PAPER_LOAD` | `700` / `50` | Assumed supply when `.supply_state` doesn't exist yet (must match `monitor.py`) |
 
 ## Architecture
 
@@ -113,6 +118,19 @@ Fires after 1.5 s timer. Finds caption from any message in group, calls `parse_c
 
 **`fit_to_paper(img)`**: picks landscape or portrait canvas by aspect ratio, scales to **fill** (centre-crop, no white borders), LANCZOS resize.
 
+**`fix_exif_rotation(img)`**: `ImageOps.exif_transpose`, called **before** `convert()`. Never reintroduce `img._getexif()` — it only exists on `JpegImageFile` and silently no-ops after a convert.
+
+### Pause and supply state
+
+The bots share state through files in the working directory:
+
+- **`.bot_paused`** — present = print bot refuses photos; contents are the reason shown to users.
+- **`.bot_paused_auto`** — present = `bot.py` paused *itself* because a supply hit zero. `/newribbon` and `/newpaper` lift an automatic pause once both supplies are stocked; they never lift a manual one. `/resume` refuses to lift an automatic pause while a supply still reads empty.
+- **`.supply_state`** — JSON ribbon/paper counters plus `alerts_sent` threshold keys.
+- **`.supply_lock`** — locked via `supply_lock.locked()` (`fcntl` on macOS, `msvcrt` on Windows). Use the OS lock, never an exists-check: the kernel releases it if a bot is killed mid-update, so a stale lock file can't wedge every later print.
+
+`bot.py` calls `print_blocked()` before every photo **and between photos in an album**, so a supply running out mid-album stops the rest of it.
+
 **`send_to_printer(jpeg_path, copies)`**: `lpr -# <copies> -o media=ME_10x15 -o fit-to-page -P MITSUBISHI_CPD90D <file>`. Raises `RuntimeError` on non-zero exit.
 
 **Caption parsing**:
@@ -127,8 +145,8 @@ Fires after 1.5 s timer. Finds caption from any message in group, calls `parse_c
 
 ### monitor.py — background tasks
 
-- **`poll_log`**: every 10 s, reads new lines from `print_log.jsonl`. `failed` → alert all sessions. `success` → check ink, alert if below threshold (guarded by `.ink_alerted`).
-- **`daily_rotation_task`**: at midnight, if first entry is from a prior month → archive to `logs/print_log_YYYY_MM.jsonl`, truncate, delete `.ink_alerted`.
+- **`poll_log`**: every 10 s, reads new lines from `print_log.jsonl`. `failed` → alert all sessions. `success` → check ribbon/paper against `RIBBON_THRESHOLDS`/`PAPER_THRESHOLDS`, alerting once per threshold (recorded in `alerts_sent`). Thresholds at or above a full load are skipped so a fresh reload doesn't alert on its first print. Also calls `check_auto_pause` so admins hear when `bot.py` pauses itself.
+- **`daily_rotation_task`**: at midnight, if first entry is from a prior month → `os.replace` to `logs/print_log_YYYY_MM.jsonl` (appending if that archive exists), recreate the live log, reset `last_line_count`, delete `.ink_alerted`. Never copy-then-truncate — that loses any print landing in between.
 - **Session auth**: password-based, persisted to `.sessions`.
 
 ### gallery.py — query bot

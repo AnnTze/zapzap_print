@@ -1,7 +1,6 @@
 import os
 import re
 import json
-import time
 import asyncio
 import tempfile
 import logging
@@ -10,10 +9,11 @@ from io import BytesIO
 from pathlib import Path
 
 from dotenv import load_dotenv
-from PIL import Image, ExifTags
+from PIL import Image, ImageOps
 from telegram import Bot, Update
 from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
 
+from supply_lock import locked
 from printing import get_printer_backend
 
 load_dotenv()
@@ -36,6 +36,9 @@ GALLERY_CHANNEL_ID = os.getenv("GALLERY_CHANNEL_ID", "")
 GALLERY_LOG_FILE = os.getenv("GALLERY_LOG_FILE", "gallery_log.jsonl")
 MAX_PRINTS_PER_MESSAGE = int(os.getenv("MAX_PRINTS_PER_MESSAGE", "5"))
 MAX_COPIES = MAX_PRINTS_PER_MESSAGE
+# Must match monitor.py — used only when .supply_state does not exist yet
+RIBBON_CAPACITY = int(os.getenv("RIBBON_CAPACITY", "700"))
+DEFAULT_PAPER_LOAD = 50
 # Logo/image composited onto every printed photo (not applied to the gallery copy).
 WATERMARK_PATH = os.getenv("WATERMARK_PATH", "watermark.png")
 WATERMARK_OPACITY = float(os.getenv("WATERMARK_OPACITY", "0.35"))
@@ -106,6 +109,14 @@ def validate_print_limit(copy_list: list[int]) -> tuple[bool, int, str]:
     ok=False means it should be rejected with error_msg.
     """
     total = sum(copy_list)
+    if len(copy_list) > MAX_PRINTS_PER_MESSAGE:
+        # More photos than the cap: no set of copy counts can satisfy the limit,
+        # so tell them to send fewer photos rather than to adjust the numbers.
+        return False, total, (
+            f"That's {len(copy_list)} photos in one album. "
+            f"Maximum is {MAX_PRINTS_PER_MESSAGE} prints per message.\n\n"
+            f"Please resend at most {MAX_PRINTS_PER_MESSAGE} photos at a time."
+        )
     if total > MAX_PRINTS_PER_MESSAGE:
         if len(copy_list) == 1:
             error = (
@@ -126,22 +137,17 @@ def validate_print_limit(copy_list: list[int]) -> tuple[bool, int, str]:
 
 
 def fix_exif_rotation(img: Image.Image) -> Image.Image:
+    """Apply the EXIF orientation tag.
+
+    Uses exif_transpose rather than img._getexif(): that private accessor only
+    exists on JpegImageFile, so reading it after convert() raised AttributeError
+    and silently skipped the rotation. Also covers the mirrored orientations
+    (2/4/5/7) the old rotation table ignored.
+    """
     try:
-        exif = img._getexif()
-        if exif is None:
-            return img
-        orientation_key = next(
-            (k for k, v in ExifTags.TAGS.items() if v == "Orientation"), None
-        )
-        if orientation_key is None:
-            return img
-        orientation = exif.get(orientation_key)
-        rotations = {3: 180, 6: 270, 8: 90}
-        if orientation in rotations:
-            img = img.rotate(rotations[orientation], expand=True)
+        return ImageOps.exif_transpose(img)
     except Exception:
-        pass
-    return img
+        return img
 
 
 def fit_to_paper(img: Image.Image) -> Image.Image:
@@ -351,16 +357,21 @@ async def post_to_gallery_channel(file_bytes: bytes, user, copies: int) -> None:
 # --- Pause + supply state (shared with monitor.py via flag/JSON files) ---
 
 PAUSE_FILE = ".bot_paused"
+AUTO_PAUSE_FILE = ".bot_paused_auto"
 SUPPLY_FILE = ".supply_state"
 SUPPLY_LOCK = ".supply_lock"
 
 DEFAULT_PAUSE_REASON = "The printer is currently offline."
+OUT_OF_RIBBON_REASON = "Out of ribbon — the cassette needs to be changed."
+OUT_OF_PAPER_REASON = "Out of paper — a new pack needs to be loaded."
 
-DEFAULT_SUPPLY = {
-    "ribbon": {"capacity": 700, "used": 0, "reset_at": None, "reset_by": None},
-    "paper":  {"loaded": 50,    "used": 0, "reset_at": None, "reset_by": None},
-    "alerts_sent": [],
-}
+
+def _default_supply() -> dict:
+    return {
+        "ribbon": {"capacity": RIBBON_CAPACITY, "used": 0, "reset_at": None, "reset_by": None},
+        "paper":  {"loaded": DEFAULT_PAPER_LOAD, "used": 0, "reset_at": None, "reset_by": None},
+        "alerts_sent": [],
+    }
 
 
 def is_paused() -> tuple[bool, str]:
@@ -380,30 +391,62 @@ def load_supply() -> dict:
     try:
         return json.loads(Path(SUPPLY_FILE).read_text())
     except Exception:
-        return json.loads(json.dumps(DEFAULT_SUPPLY))  # deep copy
+        return _default_supply()
 
 
 def save_supply(state: dict) -> None:
     Path(SUPPLY_FILE).write_text(json.dumps(state, indent=2))
 
 
-def increment_supply_used(copies: int) -> None:
-    """Increment ribbon.used and paper.used by `copies` under a file lock.
-    Retries up to 5 times if .supply_lock is held by monitor.py."""
-    lock = Path(SUPPLY_LOCK)
-    for _ in range(5):
-        try:
-            lock.touch(exist_ok=False)
-            break
-        except FileExistsError:
-            time.sleep(0.1)
-    try:
+def ribbon_remaining(state: dict) -> int:
+    return max(0, state["ribbon"]["capacity"] - state["ribbon"]["used"])
+
+
+def paper_remaining(state: dict) -> int:
+    return max(0, state["paper"]["loaded"] - state["paper"]["used"])
+
+
+def increment_supply_used(copies: int) -> dict:
+    """Increment ribbon.used and paper.used by `copies`, returning the new state."""
+    with locked(SUPPLY_LOCK):
         state = load_supply()
         state["ribbon"]["used"] += copies
         state["paper"]["used"] += copies
         save_supply(state)
-    finally:
-        lock.unlink(missing_ok=True)
+        return state
+
+
+def supply_exhausted(state: dict) -> str | None:
+    """Returns a pause reason if the booth is out of a consumable, else None."""
+    if ribbon_remaining(state) <= 0:
+        return OUT_OF_RIBBON_REASON
+    if paper_remaining(state) <= 0:
+        return OUT_OF_PAPER_REASON
+    return None
+
+
+def auto_pause(reason: str) -> None:
+    """Pause the bot because a supply ran out.
+
+    The .bot_paused_auto marker lets monitor.py tell an automatic pause from a
+    manual one, so /newribbon and /newpaper can lift it without clearing a
+    pause a human set for some other reason.
+    """
+    Path(PAUSE_FILE).write_text(reason)
+    Path(AUTO_PAUSE_FILE).write_text(reason)
+    logger.warning("Auto-paused: %s", reason)
+
+
+def print_blocked() -> str:
+    """Returns the reason printing is refused right now, or '' if it's fine."""
+    paused, reason = is_paused()
+    if paused:
+        return reason
+    out_of = supply_exhausted(load_supply())
+    if out_of:
+        auto_pause(out_of)
+        return out_of
+    return ""
 
 
 PAUSED_REPLY_TEMPLATE = (
@@ -435,10 +478,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def process_single_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle one photo or document image — same pipeline as before."""
-    paused, reason = is_paused()
-    if paused:
+    blocked = print_blocked()
+    if blocked:
         await update.effective_message.reply_text(
-            PAUSED_REPLY_TEMPLATE.format(reason=reason)
+            PAUSED_REPLY_TEMPLATE.format(reason=blocked)
         )
         return
 
@@ -468,9 +511,9 @@ async def process_single_photo(update: Update, context: ContextTypes.DEFAULT_TYP
         buf.seek(0)
 
         img = Image.open(buf)
+        img = fix_exif_rotation(img)   # before convert() — see fix_exif_rotation
         if img.mode != "RGB":
             img = img.convert("RGB")
-        img = fix_exif_rotation(img)
         img = fit_to_paper(img)
         img = apply_watermark(img)
 
@@ -488,13 +531,19 @@ async def process_single_photo(update: Update, context: ContextTypes.DEFAULT_TYP
         finally:
             os.unlink(tmp_path)
 
-        increment_supply_used(copies)
+        supply_state = increment_supply_used(copies)
         append_print_log(user, photo_file_id, copies, "success", None)
 
     except Exception as e:
         logger.exception("Print failed")
         await message.reply_text(f"Error: {e}")
         return
+
+    # The print itself has succeeded by this point; pausing is bookkeeping for
+    # the *next* job, so it stays outside the try above.
+    out_of = supply_exhausted(supply_state)
+    if out_of:
+        auto_pause(out_of)
 
     # Preview/"Done!" are user-facing confirmation, not the print itself - a
     # timeout here must not read as a failure when the print already happened.
@@ -521,10 +570,10 @@ async def process_album(media_group_id: str, context: ContextTypes.DEFAULT_TYPE)
     if not updates:
         return
 
-    paused, reason = is_paused()
-    if paused:
+    blocked = print_blocked()
+    if blocked:
         await updates[0].effective_message.reply_text(
-            PAUSED_REPLY_TEMPLATE.format(reason=reason)
+            PAUSED_REPLY_TEMPLATE.format(reason=blocked)
         )
         return
 
@@ -564,6 +613,15 @@ async def process_album(media_group_id: str, context: ContextTypes.DEFAULT_TYPE)
 
     all_success = True
     for i, (upd, copies) in enumerate(zip(updates, copy_list)):
+        # Supplies can run out partway through an album
+        blocked = print_blocked()
+        if blocked:
+            all_success = False
+            await updates[0].effective_message.reply_text(
+                f"Stopped after photo {i} of {photo_count}.\n\nReason: {blocked}"
+            )
+            break
+
         photo = upd.effective_message.photo[-1]
         try:
             tg_file = await context.bot.get_file(photo.file_id)
@@ -572,9 +630,9 @@ async def process_album(media_group_id: str, context: ContextTypes.DEFAULT_TYPE)
             buf.seek(0)
 
             img = Image.open(buf)
+            img = fix_exif_rotation(img)   # before convert() — see fix_exif_rotation
             if img.mode != "RGB":
                 img = img.convert("RGB")
-            img = fix_exif_rotation(img)
             img = fit_to_paper(img)
             img = apply_watermark(img)
 
@@ -589,7 +647,7 @@ async def process_album(media_group_id: str, context: ContextTypes.DEFAULT_TYPE)
             finally:
                 os.unlink(tmp_path)
 
-            increment_supply_used(copies)
+            supply_state = increment_supply_used(copies)
             append_print_log(user, photo.file_id, copies, "success", None)
 
         except Exception as e:
@@ -600,6 +658,11 @@ async def process_album(media_group_id: str, context: ContextTypes.DEFAULT_TYPE)
                 f"Photo {i + 1} of {photo_count} failed: {e}"
             )
             continue
+
+        # Bookkeeping for the next photo — the print above already succeeded.
+        out_of = supply_exhausted(supply_state)
+        if out_of:
+            auto_pause(out_of)
 
         # Preview is user-facing confirmation, not the print itself - a
         # timeout here must not mark an otherwise-successful photo failed.

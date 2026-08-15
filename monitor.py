@@ -1,6 +1,5 @@
 import os
 import json
-import time
 import asyncio
 import shutil
 import logging
@@ -19,6 +18,7 @@ from telegram.ext import (
     ContextTypes,
 )
 
+from supply_lock import locked
 from printing import get_printer_backend, format_queue_text
 
 load_dotenv()
@@ -33,6 +33,7 @@ LOG_ARCHIVE_DIR = os.getenv("LOG_ARCHIVE_DIR", "logs")
 SESSIONS_FILE = ".sessions"
 INK_ALERT_FLAG = ".ink_alerted"   # legacy, only referenced by rotate_log_if_needed
 PAUSE_FILE = ".bot_paused"
+AUTO_PAUSE_FILE = ".bot_paused_auto"   # present when bot.py paused itself (empty supply)
 SUPPLY_FILE = ".supply_state"
 SUPPLY_LOCK = ".supply_lock"
 
@@ -145,20 +146,33 @@ def supply_bar(remaining: int, total: int, width: int = 10) -> str:
 
 def _with_supply_lock(modifier) -> dict:
     """Atomically read-modify-write .supply_state under .supply_lock."""
-    lock = Path(SUPPLY_LOCK)
-    for _ in range(5):
-        try:
-            lock.touch(exist_ok=False)
-            break
-        except FileExistsError:
-            time.sleep(0.1)
-    try:
+    with locked(SUPPLY_LOCK):
         state = load_supply()
         modifier(state)
         save_supply(state)
         return state
-    finally:
-        lock.unlink(missing_ok=True)
+
+
+def supply_exhausted(state: dict) -> str | None:
+    """Mirrors bot.py: returns a pause reason if a consumable is empty."""
+    if ribbon_remaining(state) <= 0:
+        return "Out of ribbon — the cassette needs to be changed."
+    if paper_remaining(state) <= 0:
+        return "Out of paper — a new pack needs to be loaded."
+    return None
+
+
+def clear_pause(auto_only: bool = False) -> bool:
+    """Bring the print bot back online. With auto_only, refuses to lift a pause
+    a human set by hand. Returns True if a pause was actually cleared."""
+    if not Path(PAUSE_FILE).exists():
+        Path(AUTO_PAUSE_FILE).unlink(missing_ok=True)
+        return False
+    if auto_only and not Path(AUTO_PAUSE_FILE).exists():
+        return False
+    Path(PAUSE_FILE).unlink(missing_ok=True)
+    Path(AUTO_PAUSE_FILE).unlink(missing_ok=True)
+    return True
 
 
 def _fmt_reset(block: dict) -> str:
@@ -178,6 +192,7 @@ def _fmt_reset(block: dict) -> str:
 # ---------------------------------------------------------------------------
 
 def rotate_log_if_needed() -> None:
+    global last_line_count
     entries = read_entries(LOG_FILE)
     if not entries:
         return
@@ -192,8 +207,22 @@ def rotate_log_if_needed() -> None:
     archive_dir = Path(LOG_ARCHIVE_DIR)
     archive_dir.mkdir(exist_ok=True)
     archive_path = archive_dir / f"print_log_{first_month}.jsonl"
-    shutil.copy(LOG_FILE, archive_path)
-    open(LOG_FILE, "w").close()
+
+    # Move (don't copy-then-truncate): os.replace is atomic, so a print landing
+    # mid-rotation follows the file instead of being destroyed by the truncate.
+    staging = archive_dir / f".rotating_{first_month}.jsonl"
+    os.replace(LOG_FILE, staging)
+    Path(LOG_FILE).touch()
+    last_line_count = 0
+
+    if archive_path.exists():
+        # Append rather than overwrite — a second rotation in the same month
+        # would otherwise silently destroy the existing archive.
+        with open(staging) as src, open(archive_path, "a") as dst:
+            shutil.copyfileobj(src, dst)
+        staging.unlink()
+    else:
+        os.replace(staging, archive_path)
     if os.path.exists(INK_ALERT_FLAG):
         os.remove(INK_ALERT_FLAG)
     print(f"Rotated log for {first_month.replace('_', '-')}")
@@ -244,12 +273,14 @@ async def cmd_today(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     for e in entries:
         name = e.get("user_name", "Unknown")
         user_copies[name] = user_copies.get(name, 0) + e.get("copies", 0)
-    lines = [f"📅 *Today ({today})*", f"Jobs: {len(entries)}, Copies: {total_copies}"]
+    lines = [f"📅 Today ({today})", f"Jobs: {len(entries)}, Copies: {total_copies}"]
     if user_copies:
         lines.append("")
         for name, copies in sorted(user_copies.items(), key=lambda x: -x[1]):
             lines.append(f"• {name}: {copies} {'copy' if copies == 1 else 'copies'}")
-    await update.effective_message.reply_text("\n".join(lines), parse_mode="Markdown")
+    # Plain text: Telegram rejects the whole message if a user_name contains
+    # Markdown syntax (e.g. "Ben_10"), which silently swallowed the reply.
+    await update.effective_message.reply_text("\n".join(lines))
 
 
 async def cmd_users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -263,12 +294,12 @@ async def cmd_users(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not user_copies:
         await update.effective_message.reply_text("No print history yet.")
         return
-    lines = ["🏆 *All-time leaderboard*"]
+    lines = ["🏆 All-time leaderboard"]
     for i, (name, copies) in enumerate(
         sorted(user_copies.items(), key=lambda x: -x[1]), start=1
     ):
         lines.append(f"{i}. {name}: {copies} copies")
-    await update.effective_message.reply_text("\n".join(lines), parse_mode="Markdown")
+    await update.effective_message.reply_text("\n".join(lines))
 
 
 async def cmd_history(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -285,7 +316,7 @@ async def cmd_history(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if not recent:
         await update.effective_message.reply_text("No print history yet.")
         return
-    lines = [f"📋 *Last {len(recent)} jobs*"]
+    lines = [f"📋 Last {len(recent)} jobs"]
     for e in recent:
         try:
             ts = datetime.fromisoformat(e["timestamp"]).astimezone()
@@ -297,7 +328,7 @@ async def cmd_history(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         lines.append(
             f"{icon} {e.get('user_name', '?')} — {c} {'copy' if c == 1 else 'copies'} — {ts_str}"
         )
-    await update.effective_message.reply_text("\n".join(lines), parse_mode="Markdown")
+    await update.effective_message.reply_text("\n".join(lines))
 
 
 async def cmd_lastphoto(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -385,7 +416,18 @@ async def cmd_resume(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     if not Path(PAUSE_FILE).exists():
         await update.effective_message.reply_text("Bot is already running.")
         return
-    Path(PAUSE_FILE).unlink(missing_ok=True)
+
+    was_auto = Path(AUTO_PAUSE_FILE).exists()
+    out_of = supply_exhausted(load_supply()) if Path(SUPPLY_FILE).exists() else None
+    if was_auto and out_of:
+        await update.effective_message.reply_text(
+            f"Can't resume — {out_of}\n\n"
+            "Load the supply and use /newribbon or /newpaper, which resumes "
+            "the bot for you."
+        )
+        return
+
+    clear_pause()
     user = update.effective_message.from_user
     name = (user.first_name or "Unknown") if user else "Unknown"
     await update.effective_message.reply_text(
@@ -407,7 +449,8 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             reason = Path(PAUSE_FILE).read_text().strip() or DEFAULT_PAUSE_REASON
         except Exception:
             reason = DEFAULT_PAUSE_REASON
-        status_line = f"Status: PAUSED\nReason: {reason}"
+        how = "PAUSED (automatic)" if Path(AUTO_PAUSE_FILE).exists() else "PAUSED"
+        status_line = f"Status: {how}\nReason: {reason}"
     else:
         status_line = "Status: ONLINE"
 
@@ -444,6 +487,26 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     )
 
 
+async def _auto_resume_note(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, state: dict, name: str
+) -> str:
+    """After a reload, lift an automatic pause if both supplies are stocked.
+    Returns a line to append to the reply (empty if nothing changed)."""
+    if not Path(AUTO_PAUSE_FILE).exists():
+        return ""
+    still_out = supply_exhausted(state)
+    if still_out:
+        return f"\n\nStill paused — {still_out}"
+    if not clear_pause(auto_only=True):
+        return ""
+    await notify_others(
+        context.application,
+        f"{name} reloaded supplies — the print bot is back online.",
+        update.effective_chat.id,
+    )
+    return "\n\nPrint bot resumed automatically."
+
+
 async def cmd_newribbon(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await require_auth(update, context):
         return
@@ -471,13 +534,14 @@ async def cmd_newribbon(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             a for a in state.get("alerts_sent", []) if not a.startswith("ribbon_")
         ]
 
-    _with_supply_lock(modifier)
+    state = _with_supply_lock(modifier)
     now_local = datetime.fromisoformat(now_iso).astimezone().strftime("%-d %b %Y %H:%M")
     await update.effective_message.reply_text(
         "New ribbon loaded!\n"
         f"Capacity: {capacity} prints\n"
         f"Ribbon: {supply_bar(capacity, capacity)}\n"
         f"Loaded by: {name} at {now_local}"
+        + await _auto_resume_note(update, context, state, name)
     )
 
 
@@ -511,13 +575,14 @@ async def cmd_newpaper(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             a for a in state.get("alerts_sent", []) if not a.startswith("paper_")
         ]
 
-    _with_supply_lock(modifier)
+    state = _with_supply_lock(modifier)
     now_local = datetime.fromisoformat(now_iso).astimezone().strftime("%-d %b %Y %H:%M")
     await update.effective_message.reply_text(
         "Paper reloaded!\n"
         f"Sheets loaded: {count}\n"
         f"Paper: {supply_bar(count, count)}\n"
         f"Loaded by: {name} at {now_local}"
+        + await _auto_resume_note(update, context, state, name)
     )
 
 
@@ -538,23 +603,27 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await require_auth(update, context):
         return
     text = (
-        "*Monitor Bot Commands*\n"
+        "MONITOR BOT COMMANDS\n\n"
         "/status — bot status, queue, and supply levels\n"
-        "/pause \\[reason\\] — pause the print bot\n"
+        "/pause [reason] — pause the print bot\n"
         "/resume — resume the print bot\n"
         "/ink — detailed ribbon and paper levels\n"
-        "/newribbon \\[cap\\] — log a new ribbon cassette \\(resets counter\\)\n"
-        "/newpaper <count> — log a paper reload \\(resets counter\\)\n"
+        "/newribbon [cap] — log a new ribbon cassette (resets counter)\n"
+        "/newpaper <count> — log a paper reload (resets counter)\n"
         "/stats — total prints, copies, success rate (all time)\n"
         "/today — today's jobs and copies, per user\n"
         "/users — all-time leaderboard by copies\n"
-        "/history \\[N\\] — last N jobs (default 10)\n"
+        "/history [N] — last N jobs (default 10)\n"
         "/lastphoto — resend the last successfully printed photo\n"
         "/queue — current print queue\n"
         "/logout — end your session\n"
-        "/help — show this message"
+        "/help — show this message\n\n"
+        "The print bot pauses itself when the ribbon or paper runs out. "
+        "/newribbon or /newpaper brings it back automatically."
     )
-    await update.effective_message.reply_text(text, parse_mode="Markdown")
+    # Plain text: the \[ escapes are MarkdownV2 syntax and rendered as literal
+    # backslashes under parse_mode="Markdown".
+    await update.effective_message.reply_text(text)
 
 
 async def cmd_logout(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -620,12 +689,32 @@ async def notify_others(app: Application, text: str, exclude_chat_id: int) -> No
 # ---------------------------------------------------------------------------
 
 last_line_count: int = 0
+auto_pause_seen: bool = False
+
+
+async def check_auto_pause(app: Application) -> None:
+    """Tell the admins when bot.py has paused itself — otherwise the booth
+    just goes quiet with nobody the wiser."""
+    global auto_pause_seen
+    exists = Path(AUTO_PAUSE_FILE).exists()
+    if exists and not auto_pause_seen:
+        try:
+            reason = Path(AUTO_PAUSE_FILE).read_text().strip() or DEFAULT_PAUSE_REASON
+        except Exception:
+            reason = DEFAULT_PAUSE_REASON
+        await send_alert(
+            app,
+            f"Print bot paused itself.\n\nReason: {reason}\n\n"
+            "Reload, then use /newribbon or /newpaper to bring it back.",
+        )
+    auto_pause_seen = exists
 
 
 async def poll_log(app: Application) -> None:
     global last_line_count
     while True:
         await asyncio.sleep(10)
+        await check_auto_pause(app)
         if not os.path.exists(LOG_FILE):
             continue
         lines = []
@@ -650,11 +739,16 @@ async def poll_log(app: Application) -> None:
                 state = load_supply()
                 r_left = ribbon_remaining(state)
                 p_left = paper_remaining(state)
+                sent = set(state.get("alerts_sent", []))
                 new_alerts: list[tuple[str, str]] = []  # (key, message)
 
                 for threshold in RIBBON_THRESHOLDS:
                     key = f"ribbon_{threshold}"
-                    if r_left <= threshold and key not in state["alerts_sent"]:
+                    # Skip thresholds at or above a full load, or a fresh
+                    # cassette would alert on its very first print.
+                    if threshold >= state["ribbon"]["capacity"]:
+                        continue
+                    if r_left <= threshold and key not in sent:
                         new_alerts.append((
                             key,
                             f"Ribbon alert: {r_left} prints remaining!\n"
@@ -664,7 +758,9 @@ async def poll_log(app: Application) -> None:
 
                 for threshold in PAPER_THRESHOLDS:
                     key = f"paper_{threshold}"
-                    if p_left <= threshold and key not in state["alerts_sent"]:
+                    if threshold >= state["paper"]["loaded"]:
+                        continue
+                    if p_left <= threshold and key not in sent:
                         new_alerts.append((
                             key,
                             f"Paper alert: {p_left} sheets remaining!\n"
@@ -677,11 +773,16 @@ async def poll_log(app: Application) -> None:
 
                 if new_alerts:
                     def add_alerts(s: dict) -> None:
-                        existing = set(s.get("alerts_sent", []))
+                        recorded = s.setdefault("alerts_sent", [])
+                        existing = set(recorded)
                         for k, _ in new_alerts:
                             if k not in existing:
-                                s["alerts_sent"].append(k)
+                                recorded.append(k)
                     _with_supply_lock(add_alerts)
+
+                # bot.py pauses on the print that empties a supply; surface it
+                # now rather than waiting up to 10 s for the next poll.
+                await check_auto_pause(app)
 
 
 async def daily_rotation_task() -> None:
@@ -699,8 +800,10 @@ async def daily_rotation_task() -> None:
 # ---------------------------------------------------------------------------
 
 async def post_init(app: Application) -> None:
-    global last_line_count
+    global last_line_count, auto_pause_seen
     load_sessions()
+    # Seed the marker so a restart doesn't re-announce an existing auto-pause
+    auto_pause_seen = Path(AUTO_PAUSE_FILE).exists()
     rotate_log_if_needed()
     if os.path.exists(LOG_FILE):
         with open(LOG_FILE) as f:

@@ -6,6 +6,7 @@
 .gallery_sessions
 .ink_alerted
 .bot_paused
+.bot_paused_auto
 .supply_state
 .supply_lock
 .pids
