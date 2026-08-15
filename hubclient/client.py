@@ -17,6 +17,8 @@ import os
 
 import httpx
 
+from . import watermark
+
 logger = logging.getLogger(__name__)
 
 HEARTBEAT_SECONDS = 10
@@ -44,6 +46,20 @@ class HubClient:
         if self._client is not None:
             await self._client.aclose()
             self._client = None
+
+    async def fetch_asset(self, digest: str) -> bytes | None:
+        """Download a watermark PNG by hash. Returns None on any failure."""
+        try:
+            client = await self._get_client()
+            resp = await client.get(
+                f"{self.hub_url}/assets/{digest}",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+            )
+            resp.raise_for_status()
+            return resp.content
+        except Exception as exc:
+            logger.warning("Fetching asset %s failed: %s", digest[:12], exc)
+            return None
 
     async def heartbeat(self, payload: dict) -> dict | None:
         """Send a snapshot, return the hub's config response, or None on failure."""
@@ -78,8 +94,9 @@ class HubClient:
             logger.warning("Hub unreachable (attempt %d) — %s", self._failures, detail)
 
 
-async def heartbeat_loop(client: HubClient, build_payload) -> None:
-    """Forever: snapshot this booth, send it, sleep.
+async def heartbeat_loop(client: HubClient, build_payload,
+                         watermark_path: str | None = None) -> None:
+    """Forever: snapshot this booth, send it, apply whatever config came back.
 
     `build_payload` is a plain sync callable; it shells out to lpstat, so it
     runs in a thread to keep the bot's event loop free.
@@ -87,7 +104,10 @@ async def heartbeat_loop(client: HubClient, build_payload) -> None:
     while True:
         try:
             payload = await asyncio.to_thread(build_payload)
-            await client.heartbeat(payload)
+            config = await client.heartbeat(payload)
+            if config and watermark_path:
+                await watermark.apply_config(
+                    client, config, watermark_path=watermark_path)
         except asyncio.CancelledError:
             raise
         except Exception:

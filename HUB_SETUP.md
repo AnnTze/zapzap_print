@@ -161,6 +161,50 @@ Two code paths have never executed on real Windows hardware. Confirm them:
 
 ---
 
+## 6. Watermarks from the dashboard
+
+One watermark per event: every booth assigned to that event uses it.
+
+1. On the dashboard, scroll to **Events & watermarks**.
+2. **Drag a PNG onto the event** (or click to choose one). PNG only — the
+   transparency is what lets the photo show through. Max 8MB.
+3. Adjust **size, opacity, margin and position** with the sliders. The preview
+   composites in your browser using the same maths as `bot.py`, so what you see
+   is where it lands on the paper.
+4. Press **Apply to booths**. Every booth on that event picks it up on its next
+   heartbeat — within 10 seconds — and uses it on the *next* print. No restart,
+   no walking to the machines.
+
+Two printers get different marks by being assigned to different events.
+
+**Clear** returns that event's booths to whatever `WATERMARK_PATH` in their own
+`.env` points at. It does **not** mean "print without a watermark" — the same is
+true if the hub is unreachable or the booth has no event, so a hub outage can
+never silently strip branding off prints.
+
+Uploads are stored by content hash, so re-assigning a PNG a booth already holds
+transfers nothing.
+
+### Doing it without the dashboard
+
+Per booth, in that booth's `.env` (requires a `bot.py` restart, unlike the
+dashboard route):
+
+```ini
+WATERMARK_PATH=watermark.png
+WATERMARK_OPACITY=0.35        # 0.0 invisible - 1.0 opaque; >1.0 boosts faint edges
+WATERMARK_SCALE=0.6           # fraction of the SHORTER side of the paper
+WATERMARK_MARGIN=0.05         # gap from the edge, fraction of canvas
+WATERMARK_POSITION=bottom-right   # bottom-left, top-right, top-left, center
+```
+
+The watermark goes on the printed copy and the guest's preview, but **not** on
+the gallery-channel copy — the Telegram gallery keeps clean originals.
+
+---
+
+---
+
 ## Troubleshooting
 
 **Booth shows offline but is printing fine.** `monitor.py` isn't running, or
@@ -184,11 +228,10 @@ Not needed for testing.
 
 ## What isn't built yet
 
-- Watermark assignment from the dashboard (drag-and-drop upload, one mark per
-  event). The config channel exists in the heartbeat response but carries
-  nothing yet.
 - Per-print history and failure lists. `prints_today` comes from the snapshot;
   there is no stored per-print record on the hub.
 - Photos are **not** stored on the hub by design — the dashboard will link to
   the existing Telegram gallery channel.
+- Creating and assigning events from the dashboard; use `python -m hub.main
+  add-event` and `assign` for now.
 - launchd plist for the hub itself.

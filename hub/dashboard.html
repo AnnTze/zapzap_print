@@ -62,6 +62,35 @@
   .pause { font-size: 11.5px; color: var(--wait); border-top: 1px dashed var(--rule); padding-top: 10px; }
   .queue { font-size: 11.5px; color: var(--muted); border-top: 1px dashed var(--rule); padding-top: 10px; }
   .queue ul { margin: 6px 0 0; padding-left: 16px; }
+  .wm { display: flex; align-items: center; gap: 10px; font-size: 11.5px; color: var(--muted); border-top: 1px dashed var(--rule); padding-top: 10px; }
+  .wm img { width: 26px; height: 26px; object-fit: contain; border: 1px solid var(--rule); border-radius: 3px; background: var(--surface-2); }
+
+  h2 { font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: var(--muted); font-weight: 600; margin: 32px 22px 0; max-width: 1400px; }
+  .events { padding: 12px 22px 0; max-width: 1400px; margin: 0 auto; display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); }
+  .ev { background: var(--surface); border: 1px solid var(--rule); border-radius: 6px; padding: 18px 20px; display: flex; flex-direction: column; gap: 14px; }
+  .drop {
+    border: 2px dashed var(--rule); border-radius: 5px; padding: 22px 16px;
+    text-align: center; color: var(--muted); font-size: 12px; cursor: pointer;
+    transition: border-color .15s, background .15s;
+  }
+  .drop.over { border-color: var(--accent); background: var(--surface-2); color: var(--ink); }
+  .drop b { display: block; color: var(--ink); font-size: 13px; margin-bottom: 4px; }
+  .preview { position: relative; border-radius: 4px; overflow: hidden; aspect-ratio: 3 / 2;
+             background: linear-gradient(135deg, #8a94a6, #cfd6e0 55%, #9aa7b4); }
+  .preview img { position: absolute; }
+  .ctrls { display: grid; grid-template-columns: auto 1fr auto; gap: 8px 12px; align-items: center; font-size: 11px; color: var(--muted); }
+  .ctrls input[type=range] { width: 100%; accent-color: var(--accent); }
+  .ctrls select { font-family: var(--mono); font-size: 11px; background: var(--surface-2); color: var(--ink); border: 1px solid var(--rule); border-radius: 3px; padding: 3px 6px; grid-column: 2 / -1; }
+  .rowbtns { display: flex; gap: 8px; }
+  button {
+    font-family: var(--mono); font-size: 11.5px; padding: 7px 14px; cursor: pointer;
+    border-radius: 4px; border: 1px solid var(--accent); background: var(--accent); color: #fff;
+  }
+  button.ghost { background: none; color: var(--muted); border-color: var(--rule); }
+  button:disabled { opacity: .5; cursor: default; }
+  .msg { font-size: 11.5px; min-height: 1.2em; }
+  .msg.err { color: var(--bad); }
+  .msg.ok { color: var(--ok); }
   .empty { grid-column: 1 / -1; color: var(--muted); text-align: center; padding: 60px 20px; line-height: 1.8; }
   .empty code { background: var(--surface-2); padding: 2px 6px; border-radius: 3px; color: var(--ink); }
   @media (prefers-reduced-motion: reduce) { .bar i { transition: none; } }
@@ -73,6 +102,8 @@
   <span class="meta" id="meta">connecting…</span>
 </header>
 <main id="cards"></main>
+<h2>Events &amp; watermarks</h2>
+<section class="events" id="events"></section>
 
 <script>
 const REFRESH_MS = 3000;
@@ -118,6 +149,9 @@ function card(p) {
     ${s.paused ? `<div class="pause">${s.pause_auto ? "Auto-paused" : "Paused"} — ${esc(s.pause_reason || "")}</div>` : ""}
     ${q.length ? `<div class="queue">In queue:<ul>${q.slice(0, 4).map(j =>
         `<li>${esc(j.title || j.id || "job")}</li>`).join("")}</ul></div>` : ""}
+    <div class="wm">${p.watermark_filename
+        ? `<img src="/assets/${esc(p.watermark_asset)}" alt=""> ${esc(p.watermark_filename)}`
+        : "watermark: booth's own .env"}</div>
   </div>`;
 }
 
@@ -146,8 +180,192 @@ async function tick() {
   }
 }
 
+// --- Events & watermarks -----------------------------------------------
+// Local edits are held here so a 3s refresh of the printer cards never yanks
+// a slider out from under you mid-drag.
+const draft = {};
+
+const DEFAULTS = { opacity: 0.35, scale: 0.6, margin: 0.05, position: "bottom-right" };
+
+function d(ev) {
+  if (!draft[ev.id]) {
+    draft[ev.id] = {
+      sha256: ev.watermark_asset || null,
+      filename: ev.watermark_filename || null,
+      opacity: ev.wm_opacity ?? DEFAULTS.opacity,
+      scale: ev.wm_scale ?? DEFAULTS.scale,
+      margin: ev.wm_margin ?? DEFAULTS.margin,
+      position: ev.wm_position || DEFAULTS.position,
+    };
+  }
+  return draft[ev.id];
+}
+
+// Mirrors bot.py's apply_watermark: scale is a fraction of the SHORTER canvas
+// side applied to the logo's longer edge, margin is a fraction of each axis.
+function placeStyle(st, boxW, boxH) {
+  const shorter = Math.min(boxW, boxH);
+  const size = shorter * st.scale;
+  const mx = boxW * st.margin, my = boxH * st.margin;
+  let css = `max-width:${size}px;max-height:${size}px;opacity:${Math.min(1, st.opacity)};`;
+  switch (st.position) {
+    case "top-left":     return css + `left:${mx}px;top:${my}px;`;
+    case "top-right":    return css + `right:${mx}px;top:${my}px;`;
+    case "bottom-left":  return css + `left:${mx}px;bottom:${my}px;`;
+    case "center":       return css + `left:50%;top:50%;transform:translate(-50%,-50%);`;
+    default:             return css + `right:${mx}px;bottom:${my}px;`;
+  }
+}
+
+function eventCard(ev) {
+  const st = d(ev);
+  const n = ev.printer_count || 0;
+  return `<div class="ev" data-ev="${esc(ev.id)}">
+    <div class="top">
+      <div><div class="name">${esc(ev.name)}</div>
+        <div class="event">${n} printer${n === 1 ? "" : "s"} assigned</div></div>
+    </div>
+    <div class="drop" data-drop>
+      <b>${st.filename ? esc(st.filename) : "Drop a PNG here"}</b>
+      ${st.filename ? "click or drop to replace" : "or click to choose a file"}
+    </div>
+    <div class="preview" data-preview>
+      ${st.sha256 ? `<img src="/assets/${esc(st.sha256)}" alt="" data-mark>` : ""}
+    </div>
+    <div class="ctrls">
+      <span>Size</span><input type="range" data-k="scale" min="0.05" max="1" step="0.05" value="${st.scale}"><span data-v="scale">${st.scale}</span>
+      <span>Opacity</span><input type="range" data-k="opacity" min="0" max="1" step="0.05" value="${Math.min(1, st.opacity)}"><span data-v="opacity">${st.opacity}</span>
+      <span>Margin</span><input type="range" data-k="margin" min="0" max="0.25" step="0.01" value="${st.margin}"><span data-v="margin">${st.margin}</span>
+      <span>Position</span>
+      <select data-k="position">
+        ${["bottom-right","bottom-left","top-right","top-left","center"].map(o =>
+          `<option value="${o}" ${o === st.position ? "selected" : ""}>${o}</option>`).join("")}
+      </select>
+    </div>
+    <div class="rowbtns">
+      <button data-save ${st.sha256 ? "" : "disabled"}>Apply to booths</button>
+      <button class="ghost" data-clear>Clear</button>
+    </div>
+    <div class="msg" data-msg></div>
+  </div>`;
+}
+
+function repositionMark(el) {
+  const st = draft[el.dataset.ev];
+  const box = el.querySelector("[data-preview]");
+  const mark = el.querySelector("[data-mark]");
+  if (!mark || !box) return;
+  mark.style.cssText = placeStyle(st, box.clientWidth, box.clientHeight);
+}
+
+function wireEvent(el, ev) {
+  const id = el.dataset.ev;
+  const st = draft[id];
+  const msg = el.querySelector("[data-msg]");
+  const drop = el.querySelector("[data-drop]");
+
+  const say = (text, cls) => { msg.textContent = text; msg.className = "msg " + (cls || ""); };
+
+  async function upload(file) {
+    if (!file) return;
+    say("Uploading…");
+    const fd = new FormData();
+    fd.append("file", file);
+    try {
+      const r = await fetch("/api/assets", { method: "POST", body: fd });
+      const body = await r.json();
+      if (!r.ok) return say(body.error || "Upload failed", "err");
+      st.sha256 = body.sha256;
+      st.filename = body.filename;
+      say("Uploaded. Press Apply to send it to the booths.", "ok");
+      renderEvents(lastEvents, id);
+    } catch (e) { say("Upload failed: " + e.message, "err"); }
+  }
+
+  drop.addEventListener("click", () => {
+    const inp = document.createElement("input");
+    inp.type = "file"; inp.accept = "image/png";
+    inp.onchange = () => upload(inp.files[0]);
+    inp.click();
+  });
+  ["dragenter", "dragover"].forEach(t => drop.addEventListener(t, e => {
+    e.preventDefault(); drop.classList.add("over");
+  }));
+  ["dragleave", "drop"].forEach(t => drop.addEventListener(t, e => {
+    e.preventDefault(); drop.classList.remove("over");
+  }));
+  drop.addEventListener("drop", e => upload(e.dataTransfer.files[0]));
+
+  el.querySelectorAll("[data-k]").forEach(input => {
+    input.addEventListener("input", () => {
+      const k = input.dataset.k;
+      st[k] = k === "position" ? input.value : parseFloat(input.value);
+      const out = el.querySelector(`[data-v="${k}"]`);
+      if (out) out.textContent = st[k];
+      repositionMark(el);
+    });
+  });
+
+  el.querySelector("[data-save]").addEventListener("click", async () => {
+    say("Applying…");
+    try {
+      const r = await fetch(`/api/events/${id}/watermark`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(st),
+      });
+      const body = await r.json();
+      if (!r.ok) return say(body.error || "Failed", "err");
+      say("Applied. Booths pick it up within 10 seconds.", "ok");
+    } catch (e) { say("Failed: " + e.message, "err"); }
+  });
+
+  el.querySelector("[data-clear]").addEventListener("click", async () => {
+    say("Clearing…");
+    try {
+      const r = await fetch(`/api/events/${id}/watermark`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sha256: null }),
+      });
+      if (!r.ok) return say("Failed", "err");
+      delete draft[id];
+      say("Cleared. Booths fall back to their own .env watermark.", "ok");
+      loadEvents();
+    } catch (e) { say("Failed: " + e.message, "err"); }
+  });
+
+  repositionMark(el);
+  const mark = el.querySelector("[data-mark]");
+  if (mark) mark.addEventListener("load", () => repositionMark(el));
+}
+
+let lastEvents = [];
+function renderEvents(events, focusId) {
+  lastEvents = events;
+  const host = document.getElementById("events");
+  if (!events.length) {
+    host.innerHTML = `<div class="empty">No events yet.<br><br>
+      On the hub, run <code>python -m hub.main add-event "Sarah &amp; Tom"</code>
+      then <code>assign</code> a printer to it.</div>`;
+    return;
+  }
+  host.innerHTML = events.map(eventCard).join("");
+  host.querySelectorAll(".ev").forEach((el, i) => wireEvent(el, events[i]));
+}
+
+async function loadEvents() {
+  try {
+    const r = await fetch("/api/events", { cache: "no-store" });
+    const data = await r.json();
+    renderEvents(data.events || []);
+  } catch (e) { /* dashboard header already reports hub trouble */ }
+}
+
+window.addEventListener("resize", () =>
+  document.querySelectorAll(".ev").forEach(repositionMark));
+
 tick();
 setInterval(tick, REFRESH_MS);
+loadEvents();
 </script>
 </body>
 </html>

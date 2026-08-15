@@ -171,22 +171,48 @@ def fit_to_paper(img: Image.Image) -> Image.Image:
 
 
 _watermark_img: Image.Image | None = None
-_watermark_load_attempted = False
+_watermark_mtime: float | None = None
+_watermark_warned = False
 
 
 def get_watermark() -> Image.Image | None:
-    """Load and cache the watermark image. Returns None (and logs once) if unavailable."""
-    global _watermark_img, _watermark_load_attempted
-    if _watermark_load_attempted:
+    """Load and cache the watermark, reloading if the file on disk changed.
+
+    Keyed on mtime rather than loaded once, so a watermark pushed down by the
+    hub (monitor.py writes the file) takes effect on the next print instead of
+    needing a restart. Costs one stat() per print.
+    """
+    global _watermark_img, _watermark_mtime, _watermark_warned
+
+    if not WATERMARK_PATH:
+        return None
+    try:
+        mtime = os.path.getmtime(WATERMARK_PATH)
+    except OSError:
+        if not _watermark_warned:
+            logger.warning("WATERMARK_PATH %s not found; printing without watermark",
+                           WATERMARK_PATH)
+            _watermark_warned = True
+        _watermark_img = None
+        _watermark_mtime = None
+        return None
+
+    if mtime == _watermark_mtime:
         return _watermark_img
-    _watermark_load_attempted = True
-    if WATERMARK_PATH and os.path.exists(WATERMARK_PATH):
-        try:
-            _watermark_img = Image.open(WATERMARK_PATH).convert("RGBA")
-        except Exception:
-            logger.exception("Failed to load watermark image at %s", WATERMARK_PATH)
-    else:
-        logger.warning("WATERMARK_PATH %s not found; printing without watermark", WATERMARK_PATH)
+
+    try:
+        # load() before caching: Image.open is lazy, and on Windows the open
+        # handle would block monitor.py replacing the file underneath us.
+        img = Image.open(WATERMARK_PATH)
+        img.load()
+        _watermark_img = img.convert("RGBA")
+        _watermark_mtime = mtime
+        _watermark_warned = False
+        logger.info("Watermark loaded from %s", WATERMARK_PATH)
+    except Exception:
+        logger.exception("Failed to load watermark image at %s", WATERMARK_PATH)
+        _watermark_img = None
+        _watermark_mtime = mtime   # don't retry a broken file every print
     return _watermark_img
 
 

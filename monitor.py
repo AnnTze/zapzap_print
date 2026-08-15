@@ -838,7 +838,10 @@ async def post_init(app: Application) -> None:
     hub = hubclient.from_env()
     if hub is not None:
         app.bot_data["hub_client"] = hub
-        asyncio.create_task(hubclient.heartbeat_loop(hub, build_hub_payload))
+        asyncio.create_task(hubclient.heartbeat_loop(
+            hub, build_hub_payload,
+            watermark_path=os.getenv("WATERMARK_PATH", "watermark.png"),
+        ))
         logger.info("Hub telemetry enabled: %s", hub.hub_url)
     else:
         logger.info("Hub telemetry disabled (HUB_URL not set) — running standalone")

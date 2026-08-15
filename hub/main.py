@@ -26,6 +26,7 @@ from .api import build_app
 load_dotenv("hub.env")
 
 DB_PATH = os.getenv("HUB_DB", "hub.db")
+ASSETS_DIR = os.getenv("HUB_ASSETS", "hub_assets")
 BIND = os.getenv("HUB_BIND", "127.0.0.1")
 PORT = int(os.getenv("HUB_PORT", "8080"))
 
@@ -38,7 +39,7 @@ logger = logging.getLogger("hub")
 
 def cmd_serve(args: argparse.Namespace) -> None:
     db.init_db(DB_PATH)
-    app = build_app(DB_PATH)
+    app = build_app(DB_PATH, ASSETS_DIR)
     logger.info("Hub listening on http://%s:%s  (db: %s)", BIND, PORT, DB_PATH)
     if BIND == "127.0.0.1":
         logger.info("Bound to localhost only. Set HUB_BIND to your Tailscale "
