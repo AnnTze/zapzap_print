@@ -6,158 +6,225 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>ZapZap · Booths</title>
 <style>
+  /* System colours as published 9 June 2025. Fills and text are separate
+     tokens: Apple's default colours are designed as fills, and using them for
+     text fails the 4.5:1 minimum (systemGreen on white measures 2.22:1), so
+     text uses the increased-contrast variants in light mode. */
   :root {
-    /* Apple system palette, light: grouped background with white cards. */
-    --bg: #F2F2F7;
+    color-scheme: light dark;
+
+    --bg: #F2F2F7;            /* systemGray6 — grouped background */
     --card: #FFFFFF;
     --card-2: #F2F2F7;
     --separator: rgba(60, 60, 67, .29);
     --label: #000000;
     --label-2: rgba(60, 60, 67, .60);
     --label-3: rgba(60, 60, 67, .30);
-    --blue: #007AFF;
-    --green: #34C759;
-    --orange: #FF9500;
-    --red: #FF3B30;
-    --fill: rgba(120, 120, 128, .16);
-    --header-bg: rgba(242, 242, 247, .82);
-    --shadow: 0 1px 2px rgba(0, 0, 0, .04), 0 4px 16px rgba(0, 0, 0, .04);
 
-    --text: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
-    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, monospace;
+    --blue: #0088FF;   --blue-text: #1E6EF4;
+    --green: #34C759;  --green-text: #008932;   --green-pill: #00702A;
+    --orange: #FF8D28; --orange-text: #C55300;  --orange-pill: #9A4100;
+    --red: #FF383C;    --red-text: #E9152D;     --red-pill: #C1071C;
+
+    --fill: rgba(120, 120, 128, .16);
+    --header-bg: rgba(242, 242, 247, .94);
+    --shadow: 0 1px 2px rgba(0, 0, 0, .04), 0 4px 16px rgba(0, 0, 0, .04);
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #000000;
-      --card: #1C1C1E;
+      --card: #1C1C1E;        /* elevated: dark greys, not borders */
       --card-2: #2C2C2E;
       --separator: rgba(84, 84, 88, .65);
       --label: #FFFFFF;
       --label-2: rgba(235, 235, 245, .60);
       --label-3: rgba(235, 235, 245, .30);
-      --blue: #0A84FF;
-      --green: #30D158;
-      --orange: #FF9F0A;
-      --red: #FF453A;
+
+      --blue: #0091FF;   --blue-text: #0091FF;
+      --green: #30D158;  --green-text: #30D158;   --green-pill: #30D158;
+      --orange: #FF9230; --orange-text: #FF9230;  --orange-pill: #FF9230;
+      --red: #FF4245;    --red-text: #FF4245;     --red-pill: #FF6165;
+
       --fill: rgba(120, 120, 128, .36);
-      --header-bg: rgba(0, 0, 0, .78);
+      --header-bg: rgba(0, 0, 0, .92);
       --shadow: none;
     }
   }
+  /* Increase Contrast: Apple ships AX variants of every system colour for it. */
+  @media (prefers-contrast: more) {
+    :root {
+      --label-2: rgba(60, 60, 67, .85);
+      --green-text: #008932; --orange-text: #C55300; --red-text: #E9152D; --blue-text: #1E6EF4;
+      --separator: rgba(60, 60, 67, .6);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --label-2: rgba(235, 235, 245, .85);
+        --green-text: #4AD968; --orange-text: #FFA056; --red-text: #FF6165; --blue-text: #5CB8FF;
+        --separator: rgba(84, 84, 88, .9);
+      }
+    }
+  }
+
   * { box-sizing: border-box; }
   body {
     margin: 0;
     background: var(--bg);
     color: var(--label);
-    font-family: var(--text);
-    font-size: 17px;
-    line-height: 1.45;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    font-size: 17px;                 /* iOS Body */
+    line-height: 1.35;
     letter-spacing: -.01em;
     -webkit-font-smoothing: antialiased;
-    padding: 0 0 max(48px, env(safe-area-inset-bottom));
+    padding: 0 0 max(40px, env(safe-area-inset-bottom));
   }
 
+  /* Functional layer: the only place translucency belongs. The base colour is
+     opaque enough to carry text on its own, because Safari cannot report
+     Reduce Transparency — the blur is garnish, never the legibility mechanism. */
   header {
     position: sticky; top: 0; z-index: 10;
     background: var(--header-bg);
     -webkit-backdrop-filter: saturate(180%) blur(20px);
     backdrop-filter: saturate(180%) blur(20px);
     border-bottom: .5px solid var(--separator);
-    padding: 14px 20px 12px;
-    padding-top: max(14px, env(safe-area-inset-top));
+    padding: 12px 16px 12px;
+    padding-top: max(12px, env(safe-area-inset-top));
   }
-  h1 { margin: 0; font-size: 34px; line-height: 1.12; font-weight: 700; letter-spacing: -.022em; }
-  .meta { margin-top: 2px; font-size: 13px; color: var(--label-2); font-variant-numeric: tabular-nums; }
+  .wrap { max-width: 1100px; margin: 0 auto; }
+  h1 { margin: 0; font-size: 34px; line-height: 1.2; font-weight: 700; letter-spacing: -.024em; }
 
-  main, .events { max-width: 1100px; margin: 0 auto; padding: 20px; }
+  /* Weather-style summary: the one line you read while walking. */
+  .summary { display: flex; align-items: center; gap: 7px; margin-top: 4px; font-size: 17px; font-weight: 600; }
+  .summary.ok   { color: var(--green-text); }
+  .summary.warn { color: var(--orange-text); }
+  .summary.bad  { color: var(--red-text); }
+  .sub { margin-top: 1px; font-size: 13px; color: var(--label-2); font-variant-numeric: tabular-nums; }
+
+  main, .events { max-width: 1100px; margin: 0 auto; padding: 16px; }
   main { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
 
   .card {
     background: var(--card); border-radius: 16px; box-shadow: var(--shadow);
-    padding: 18px 20px 20px; display: flex; flex-direction: column; gap: 16px;
+    padding: 16px; display: flex; flex-direction: column; gap: 14px;
   }
-  .card.off { opacity: .6; }
-  .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
-  .name { font-size: 20px; font-weight: 600; letter-spacing: -.02em; line-height: 1.2; }
-  .event { font-size: 13px; color: var(--label-2); margin-top: 1px; }
+  .card.off { opacity: .62; }
+  .top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+  .name { font-size: 17px; font-weight: 600; letter-spacing: -.015em; }  /* Headline */
+  .event { font-size: 13px; color: var(--label-2); margin-top: 1px; }    /* Footnote */
 
+  /* Tinted pill + glyph + word: three channels, none of them colour alone. */
   .pill {
-    flex: none; font-size: 12px; font-weight: 600;
-    padding: 4px 10px; border-radius: 100px; white-space: nowrap;
-    background: var(--fill); color: var(--label-2);
+    flex: none; display: inline-flex; align-items: center; gap: 5px;
+    font-size: 13px; font-weight: 600; padding: 5px 10px; border-radius: 100px;
+    background: var(--fill); color: var(--label-2); white-space: nowrap;
   }
-  .pill.on   { color: var(--green);  background: color-mix(in srgb, var(--green) 14%, transparent); }
-  .pill.warn { color: var(--orange); background: color-mix(in srgb, var(--orange) 16%, transparent); }
-  .pill.bad  { color: var(--red);    background: color-mix(in srgb, var(--red) 14%, transparent); }
+  .pill svg { width: 13px; height: 13px; flex: none; }
+  .pill.ok   { color: var(--green-pill);  background: color-mix(in srgb, var(--green) 16%, transparent); }
+  .pill.warn { color: var(--orange-pill); background: color-mix(in srgb, var(--orange) 16%, transparent); }
+  .pill.bad  { color: var(--red-pill);    background: color-mix(in srgb, var(--red) 16%, transparent); }
 
-  .stats { display: flex; gap: 28px; }
-  .stat span { display: block; font-size: 12px; font-weight: 500; color: var(--label-2); }
-  .stat b { display: block; font-size: 30px; font-weight: 600; letter-spacing: -.03em; font-variant-numeric: tabular-nums; line-height: 1.15; }
+  /* The line that answers "do I need to walk over there?" — largest text. */
+  .headline { display: flex; align-items: flex-start; gap: 7px; font-size: 22px; font-weight: 600; letter-spacing: -.021em; line-height: 1.25; }
+  .headline svg { width: 19px; height: 19px; flex: none; margin-top: 3px; }
+  .headline.ok   { color: var(--label); }
+  .headline.warn { color: var(--orange-text); }
+  .headline.bad  { color: var(--red-text); }
 
-  .bars { display: flex; flex-direction: column; gap: 11px; }
-  .barrow { display: grid; grid-template-columns: 62px 1fr auto; gap: 12px; align-items: center; }
-  .barrow > span:first-child { font-size: 13px; color: var(--label-2); }
-  .bar { height: 6px; border-radius: 100px; background: var(--fill); overflow: hidden; }
-  .bar i { display: block; height: 100%; border-radius: 100px; background: var(--green); transition: width .5s cubic-bezier(.4, 0, .2, 1); }
-  .bar i.mid { background: var(--orange); }
-  .bar i.low { background: var(--red); }
-  .val { font-size: 13px; color: var(--label-2); font-variant-numeric: tabular-nums; }
+  /* Capacity gauges — not progress indicators. Fill changes at thresholds and
+     the value text states the level, so the state survives greyscale. */
+  .gauges { display: flex; flex-direction: column; gap: 10px; }
+  .gauge { display: grid; grid-template-columns: 52px 1fr auto; gap: 10px; align-items: center; }
+  .gauge > .g-label { font-size: 13px; color: var(--label-2); }
+  .track { height: 8px; border-radius: 100px; background: var(--fill); overflow: hidden; }
+  .track i { display: block; height: 100%; border-radius: 100px; background: var(--green); transition: width .5s cubic-bezier(.4, 0, .2, 1); }
+  .track i.mid { background: var(--orange); }
+  .track i.low { background: var(--red); }
+  .g-val { font-size: 13px; color: var(--label-2); font-variant-numeric: tabular-nums; }
+  .g-val.mid { color: var(--orange-text); font-weight: 600; }
+  .g-val.low { color: var(--red-text); font-weight: 600; }
 
-  .inset { background: var(--card-2); border-radius: 10px; padding: 11px 13px; font-size: 13px; line-height: 1.4; }
-  .inset.warn { color: var(--orange); }
-  .inset .h { color: var(--label-2); margin-bottom: 5px; }
-  .inset ul { margin: 0; padding-left: 17px; font-family: var(--mono); font-size: 11.5px; color: var(--label-2); }
-  .wm { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--label-2); }
-  .wm img { width: 30px; height: 30px; object-fit: contain; flex: none; border-radius: 7px; background: var(--fill); }
+  .foot { font-size: 13px; color: var(--label-2); font-variant-numeric: tabular-nums;
+          border-top: .5px solid var(--separator); padding-top: 11px; }
+  .queue { margin: 6px 0 0; padding-left: 16px; font-size: 12px; color: var(--label-2); }
+  .queue li { font-variant-numeric: tabular-nums; }
 
-  h2 { max-width: 1100px; margin: 26px auto 0; padding: 0 20px; font-size: 22px; font-weight: 700; letter-spacing: -.02em; }
-  .events { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); padding-top: 12px; }
-  .ev { background: var(--card); border-radius: 16px; box-shadow: var(--shadow); padding: 18px 20px 20px; display: flex; flex-direction: column; gap: 15px; }
+  .wm { display: flex; align-items: center; gap: 9px; font-size: 13px; color: var(--label-2); }
+  /* Checkerboard so a white-on-white logo is still visible. */
+  .wm .thumb {
+    width: 30px; height: 30px; border-radius: 7px; flex: none; overflow: hidden;
+    background-color: #fff;
+    background-image: linear-gradient(45deg, #d8d8dc 25%, transparent 25%, transparent 75%, #d8d8dc 75%),
+                      linear-gradient(45deg, #d8d8dc 25%, transparent 25%, transparent 75%, #d8d8dc 75%);
+    background-size: 10px 10px; background-position: 0 0, 5px 5px;
+  }
+  .wm .thumb img { width: 100%; height: 100%; object-fit: contain; }
+
+  h2 { max-width: 1100px; margin: 24px auto 0; padding: 0 16px; font-size: 22px; font-weight: 700; letter-spacing: -.021em; }
+  .events { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); padding-top: 10px; }
+  .ev { background: var(--card); border-radius: 16px; box-shadow: var(--shadow); padding: 16px; display: flex; flex-direction: column; gap: 14px; }
 
   .drop {
     border: 1.5px dashed var(--label-3); border-radius: 12px;
-    padding: 20px 16px; text-align: center; cursor: pointer;
+    padding: 18px 14px; text-align: center; cursor: pointer;
     font-size: 13px; color: var(--label-2); transition: border-color .2s, background .2s;
   }
-  .drop.over { border-color: var(--blue); background: color-mix(in srgb, var(--blue) 8%, transparent); }
-  .drop b { display: block; font-size: 15px; font-weight: 500; color: var(--label); margin-bottom: 3px; }
+  .drop.over { border-color: var(--blue); background: color-mix(in srgb, var(--blue) 10%, transparent); }
+  .drop b { display: block; font-size: 15px; font-weight: 500; color: var(--label); margin-bottom: 2px; }
 
   .preview { position: relative; border-radius: 12px; overflow: hidden; aspect-ratio: 3 / 2;
              background: linear-gradient(150deg, #5B6B8C, #A9B4C4 52%, #8C7F6E); }
   .preview img { position: absolute; }
 
-  .ctrls { display: grid; grid-template-columns: 66px 1fr 46px; gap: 12px; align-items: center; font-size: 13px; color: var(--label-2); }
-  .ctrls input[type=range] { width: 100%; accent-color: var(--blue); }
-  .ctrls .num { text-align: right; font-variant-numeric: tabular-nums; }
-  .ctrls select { grid-column: 2 / -1; font-family: inherit; font-size: 14px; background: var(--card-2);
-                  color: var(--label); border: none; border-radius: 8px; padding: 7px 10px; }
+  /* 44pt minimum row height per the HIG's default control size. */
+  .ctrl { display: grid; grid-template-columns: 66px 1fr 44px; gap: 10px; align-items: center; min-height: 44px; }
+  .ctrl > label { font-size: 13px; color: var(--label-2); }
+  .ctrl input[type=range] { width: 100%; min-height: 44px; accent-color: var(--blue); background: transparent; }
+  .ctrl .num { text-align: right; font-size: 13px; color: var(--label-2); font-variant-numeric: tabular-nums; }
+  .ctrl select { grid-column: 2 / -1; min-height: 44px; font-family: inherit; font-size: 15px;
+                 background: var(--card-2); color: var(--label); border: none; border-radius: 10px; padding: 0 10px; }
 
   .rowbtns { display: flex; gap: 10px; }
-  button { font-family: inherit; font-size: 15px; font-weight: 500; padding: 10px 18px;
+  button { font-family: inherit; font-size: 15px; font-weight: 500; min-height: 44px; padding: 0 18px;
            border-radius: 100px; border: none; cursor: pointer; background: var(--blue); color: #fff; transition: opacity .15s; }
   button:active { opacity: .7; }
   button.ghost { background: var(--fill); color: var(--label); }
   button:disabled { opacity: .4; cursor: default; }
+  :focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; border-radius: 6px; }
 
   .msg { font-size: 13px; min-height: 1.3em; color: var(--label-2); }
-  .msg.err { color: var(--red); }
-  .msg.ok { color: var(--green); }
+  .msg.err { color: var(--red-text); }
+  .msg.ok { color: var(--green-text); }
 
-  .empty { grid-column: 1 / -1; text-align: center; padding: 56px 24px; color: var(--label-2); font-size: 15px; line-height: 1.6; }
-  .empty code { font-family: var(--mono); font-size: 13px; color: var(--label); }
+  .empty { grid-column: 1 / -1; text-align: center; padding: 52px 20px; color: var(--label-2); font-size: 15px; line-height: 1.6; }
+  .empty code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 13px; color: var(--label); }
 
   @media (max-width: 500px) {
-    h1 { font-size: 30px; }
-    main, .events { padding: 16px; gap: 14px; grid-template-columns: 1fr; }
-    h2 { padding: 0 16px; }
+    main, .events { grid-template-columns: 1fr; }
   }
-  @media (prefers-reduced-motion: reduce) { .bar i { transition: none; } }
+  @media (prefers-reduced-motion: reduce) {
+    .track i { transition: none; }
+    * { scroll-behavior: auto; }
+  }
 </style>
 </head>
 <body>
+
+<!-- Custom glyphs. SF Symbols are licensed for Apple-platform software only,
+     so these are drawn here: simple, consistent stroke weight, currentColor. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <symbol id="g-ok" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5" fill="currentColor"/></symbol>
+  <symbol id="g-pause" viewBox="0 0 16 16"><rect x="4.5" y="3.5" width="2.6" height="9" rx="1.1" fill="currentColor"/><rect x="8.9" y="3.5" width="2.6" height="9" rx="1.1" fill="currentColor"/></symbol>
+  <symbol id="g-off" viewBox="0 0 16 16"><circle cx="8" cy="8" r="5.2" fill="none" stroke="currentColor" stroke-width="1.8"/><line x1="4.3" y1="11.7" x2="11.7" y2="4.3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="g-warn" viewBox="0 0 16 16"><path d="M8 2.2 L15 13.8 H1 Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><line x1="8" y1="6.4" x2="8" y2="9.8" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><circle cx="8" cy="11.9" r=".95" fill="currentColor"/></symbol>
+</svg>
+
 <header>
-  <h1>Booths</h1>
-  <div class="meta" id="meta">Connecting…</div>
+  <div class="wrap">
+    <h1>Booths</h1>
+    <div class="summary" id="summary" aria-live="polite">Connecting…</div>
+    <div class="sub" id="meta"></div>
+  </div>
 </header>
 <main id="cards"></main>
 <h2>Events &amp; Watermarks</h2>
@@ -166,6 +233,17 @@
 <script>
 const REFRESH_MS = 3000;
 
+// Thresholds shared by the gauge fill, the value text and the headline, so all
+// three change together and the state never depends on colour alone.
+const LOW = 10, MID = 25;
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function glyph(id) { return `<svg aria-hidden="true" focusable="false"><use href="#${id}"/></svg>`; }
+
 function ago(sec) {
   if (sec === null || sec === undefined) return "never";
   if (sec < 60) return Math.round(sec) + "s ago";
@@ -173,49 +251,97 @@ function ago(sec) {
   return Math.round(sec / 3600) + "h ago";
 }
 
-function bar(label, remaining, total) {
-  if (remaining === undefined || remaining === null || !total) return "";
-  const pct = Math.max(0, Math.min(100, (remaining / total) * 100));
-  const cls = pct <= 10 ? "low" : pct <= 30 ? "mid" : "";
-  return `<div class="barrow"><span>${label}</span>
-    <span class="bar"><i class="${cls}" style="width:${pct}%"></i></span>
-    <span class="val">${remaining}/${total}</span></div>`;
+function level(remaining, total) {
+  if (remaining === null || remaining === undefined || !total) return null;
+  const pct = (remaining / total) * 100;
+  return { pct, cls: pct <= LOW ? "low" : pct <= MID ? "mid" : "" };
+}
+
+// A capacity gauge: fill, threshold colour, and a value that names the level.
+function gauge(name, remaining, total) {
+  const l = level(remaining, total);
+  if (!l) return "";
+  const word = l.cls === "low" ? " · Very low" : l.cls === "mid" ? " · Low" : "";
+  return `<div class="gauge" role="meter" aria-valuemin="0" aria-valuemax="${total}"
+       aria-valuenow="${remaining}" aria-valuetext="${name}: ${remaining} of ${total} remaining${word}">
+    <span class="g-label" aria-hidden="true">${name}</span>
+    <span class="track" aria-hidden="true"><i class="${l.cls}" style="width:${Math.max(0, Math.min(100, l.pct))}%"></i></span>
+    <span class="g-val ${l.cls}" aria-hidden="true">${remaining}/${total}${word}</span>
+  </div>`;
+}
+
+// The largest text on the card answers: does this need me, and when?
+function headline(p) {
+  const s = p.status || {};
+  if (!p.online) return { text: "Not reporting", tone: "bad", icon: "g-off" };
+  if (s.paused) return { text: s.pause_reason || "Paused", tone: "warn", icon: "g-pause" };
+  if (s.printer_ready === false) return { text: "Printer not responding", tone: "warn", icon: "g-warn" };
+
+  const supplies = [];
+  if (s.ribbon_capacity) supplies.push(["Ribbon", s.ribbon_remaining, s.ribbon_capacity]);
+  if (s.paper_loaded) supplies.push(["Paper", s.paper_remaining, s.paper_loaded]);
+  const scored = supplies.map(([n, r, t]) => ({ n, r, l: level(r, t) })).filter(x => x.l);
+  if (!scored.length) return { text: "Running", tone: "ok", icon: "g-ok" };
+  scored.sort((a, b) => a.l.pct - b.l.pct);
+  const worst = scored[0];
+
+  if (worst.r === 0) return { text: `Out of ${worst.n.toLowerCase()}`, tone: "bad", icon: "g-warn" };
+  if (worst.l.cls === "low") return { text: `${worst.n} very low — ${worst.r} left`, tone: "bad", icon: "g-warn" };
+  if (worst.l.cls === "mid") return { text: `${worst.n} low — ${worst.r} left`, tone: "warn", icon: "g-warn" };
+  return { text: "Running normally", tone: "ok", icon: "g-ok" };
 }
 
 function card(p) {
   const s = p.status || {};
-  let state = "on", label = "Online";
-  if (!p.online) { state = "bad"; label = "Offline " + ago(p.seconds_since_seen); }
-  else if (s.paused) { state = "warn"; label = "Paused"; }
-  else if (s.printer_ready === false) { state = "warn"; label = "Printer down"; }
+  let pill = { cls: "ok", label: "Online", icon: "g-ok" };
+  if (!p.online) pill = { cls: "bad", label: "Offline " + ago(p.seconds_since_seen), icon: "g-off" };
+  else if (s.paused) pill = { cls: "warn", label: "Paused", icon: "g-pause" };
+  else if (s.printer_ready === false) pill = { cls: "warn", label: "Printer down", icon: "g-warn" };
 
+  const h = headline(p);
   const q = Array.isArray(s.queue) ? s.queue : [];
-  return `<div class="card ${p.online ? "" : "off"}">
+  const foot = [
+    s.queue_depth != null ? `${s.queue_depth} in queue` : null,
+    s.prints_today != null ? `${s.prints_today} printed today` : null,
+  ].filter(Boolean).join(" · ");
+
+  return `<div class="card ${p.online ? "" : "off"}" role="group" aria-label="${esc(p.name)}: ${esc(pill.label)}. ${esc(h.text)}">
     <div class="top">
       <div><div class="name">${esc(p.name)}</div>
         <div class="event">${p.event_name ? esc(p.event_name) : "No event assigned"}</div></div>
-      <span class="pill ${state}">${esc(label)}</span>
+      <span class="pill ${pill.cls}">${glyph(pill.icon)}${esc(pill.label)}</span>
     </div>
-    <div class="stats">
-      <div class="stat"><b>${s.prints_today ?? "—"}</b><span>Prints today</span></div>
-      <div class="stat"><b>${s.queue_depth ?? "—"}</b><span>In queue</span></div>
+    <div class="headline ${h.tone}">${h.tone === "ok" ? "" : glyph(h.icon)}<span>${esc(h.text)}</span></div>
+    <div class="gauges">
+      ${gauge("Ribbon", s.ribbon_remaining, s.ribbon_capacity)}
+      ${gauge("Paper", s.paper_remaining, s.paper_loaded)}
     </div>
-    <div class="bars">
-      ${bar("Ribbon", s.ribbon_remaining, s.ribbon_capacity)}
-      ${bar("Paper", s.paper_remaining, s.paper_loaded)}
-    </div>
-    ${s.paused ? `<div class="inset warn">${s.pause_auto ? "Auto-paused" : "Paused"} — ${esc(s.pause_reason || "")}</div>` : ""}
-    ${q.length ? `<div class="inset"><div class="h">In queue</div><ul>${q.slice(0, 4).map(j =>
-        `<li>${esc(j.title || j.id || "job")}</li>`).join("")}</ul></div>` : ""}
+    ${foot ? `<div class="foot">${foot}
+      ${q.length ? `<ul class="queue">${q.slice(0, 3).map(j => `<li>${esc(j.title || j.id || "job")}</li>`).join("")}</ul>` : ""}
+    </div>` : ""}
     <div class="wm">${p.watermark_filename
-        ? `<img src="/assets/${esc(p.watermark_asset)}" alt=""> ${esc(p.watermark_filename)}`
+        ? `<span class="thumb"><img src="/assets/${esc(p.watermark_asset)}" alt=""></span> ${esc(p.watermark_filename)}`
         : "Watermark from booth's own .env"}</div>
   </div>`;
 }
 
-function esc(s) {
-  return String(s).replace(/[&<>"']/g, c =>
-    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+// One line, readable at arm's length while walking.
+function summarise(list) {
+  if (!list.length) return { text: "No printers registered", tone: "warn", icon: "g-warn" };
+  const off = list.filter(p => !p.online);
+  const paused = list.filter(p => p.online && (p.status || {}).paused);
+  const low = list.filter(p => {
+    if (!p.online || (p.status || {}).paused) return false;
+    const s = p.status || {};
+    return [level(s.ribbon_remaining, s.ribbon_capacity), level(s.paper_remaining, s.paper_loaded)]
+      .some(l => l && l.cls);
+  });
+  const names = a => a.map(p => p.name).join(", ");
+  if (off.length) return { text: `${names(off)} not reporting`, tone: "bad", icon: "g-off" };
+  if (paused.length) return { text: `${names(paused)} paused`, tone: "bad", icon: "g-pause" };
+  if (low.length) return { text: `${names(low)} running low`, tone: "warn", icon: "g-warn" };
+  const n = list.length;
+  return { text: n === 1 ? "Booth running" : `All ${n} booths running`, tone: "ok", icon: "g-ok" };
 }
 
 async function tick() {
@@ -224,17 +350,22 @@ async function tick() {
     if (!r.ok) throw new Error("HTTP " + r.status);
     const data = await r.json();
     const list = data.printers || [];
+    const sm = summarise(list);
+    const el = document.getElementById("summary");
+    el.className = "summary " + sm.tone;
+    el.innerHTML = glyph(sm.icon) + "<span>" + esc(sm.text) + "</span>";
     const online = list.filter(p => p.online).length;
     document.getElementById("meta").textContent =
-      list.length ? `${list.length} printer${list.length === 1 ? "" : "s"} · ${online} online · updated just now`
-                  : "No printers registered";
+      list.length ? `${online} of ${list.length} online · updated just now` : "";
     document.getElementById("cards").innerHTML = list.length
       ? list.map(card).join("")
       : `<div class="empty">No booths registered yet.<br><br>
          On the hub, run <code>python -m hub.main add-printer "Booth A"</code><br>
          then put the printed key in that machine's <code>.env</code>.</div>`;
   } catch (e) {
-    document.getElementById("meta").textContent = "hub unreachable — " + e.message;
+    const el = document.getElementById("summary");
+    el.className = "summary bad";
+    el.innerHTML = glyph("g-off") + "<span>hub unreachable — " + esc(e.message) + "</span>";
   }
 }
 
@@ -278,24 +409,30 @@ function placeStyle(st, boxW, boxH) {
 function eventCard(ev) {
   const st = d(ev);
   const n = ev.printer_count || 0;
+  const sl = (k, min, max, step) => `<div class="ctrl">
+      <label for="${ev.id}-${k}">${k[0].toUpperCase() + k.slice(1)}</label>
+      <input id="${ev.id}-${k}" type="range" data-k="${k}" min="${min}" max="${max}" step="${step}"
+             value="${k === "opacity" ? Math.min(1, st[k]) : st[k]}">
+      <span class="num" data-v="${k}">${st[k]}</span>
+    </div>`;
   return `<div class="ev" data-ev="${esc(ev.id)}">
     <div class="top">
       <div><div class="name">${esc(ev.name)}</div>
         <div class="event">${n} printer${n === 1 ? "" : "s"} assigned</div></div>
     </div>
-    <div class="drop" data-drop>
+    <div class="drop" data-drop role="button" tabindex="0">
       <b>${st.filename ? esc(st.filename) : "Drop a PNG here"}</b>
       ${st.filename ? "Click or drop to replace" : "Or click to choose a file"}
     </div>
     <div class="preview" data-preview>
       ${st.sha256 ? `<img src="/assets/${esc(st.sha256)}" alt="" data-mark>` : ""}
     </div>
-    <div class="ctrls">
-      <span>Size</span><input type="range" data-k="scale" min="0.05" max="1" step="0.05" value="${st.scale}"><span class="num" data-v="scale">${st.scale}</span>
-      <span>Opacity</span><input type="range" data-k="opacity" min="0" max="1" step="0.05" value="${Math.min(1, st.opacity)}"><span class="num" data-v="opacity">${st.opacity}</span>
-      <span>Margin</span><input type="range" data-k="margin" min="0" max="0.25" step="0.01" value="${st.margin}"><span class="num" data-v="margin">${st.margin}</span>
-      <span>Position</span>
-      <select data-k="position">
+    ${sl("scale", 0.05, 1, 0.05)}
+    ${sl("opacity", 0, 1, 0.05)}
+    ${sl("margin", 0, 0.25, 0.01)}
+    <div class="ctrl">
+      <label for="${ev.id}-position">Position</label>
+      <select id="${ev.id}-position" data-k="position">
         ${["bottom-right","bottom-left","top-right","top-left","center"].map(o =>
           `<option value="${o}" ${o === st.position ? "selected" : ""}>${o}</option>`).join("")}
       </select>
@@ -304,7 +441,7 @@ function eventCard(ev) {
       <button data-save ${st.sha256 ? "" : "disabled"}>Apply to booths</button>
       <button class="ghost" data-clear>Clear</button>
     </div>
-    <div class="msg" data-msg></div>
+    <div class="msg" data-msg aria-live="polite"></div>
   </div>`;
 }
 
@@ -340,12 +477,14 @@ function wireEvent(el, ev) {
     } catch (e) { say("Upload failed: " + e.message, "err"); }
   }
 
-  drop.addEventListener("click", () => {
+  const pick = () => {
     const inp = document.createElement("input");
     inp.type = "file"; inp.accept = "image/png";
     inp.onchange = () => upload(inp.files[0]);
     inp.click();
-  });
+  };
+  drop.addEventListener("click", pick);
+  drop.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(); } });
   ["dragenter", "dragover"].forEach(t => drop.addEventListener(t, e => {
     e.preventDefault(); drop.classList.add("over");
   }));
@@ -415,7 +554,7 @@ async function loadEvents() {
     const r = await fetch("/api/events", { cache: "no-store" });
     const data = await r.json();
     renderEvents(data.events || []);
-  } catch (e) { /* dashboard header already reports hub trouble */ }
+  } catch (e) { /* the summary line already reports hub trouble */ }
 }
 
 window.addEventListener("resize", () =>
