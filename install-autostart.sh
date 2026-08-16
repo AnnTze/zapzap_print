@@ -12,7 +12,17 @@ err()  { echo -e "${RED}$1${RESET}"; }
 
 PROJECT_DIR=$(cd "$(dirname "$0")" && pwd)
 LAUNCH_AGENTS_DIR="$HOME/Library/LaunchAgents"
+# Prefer the project venv; fall back to system python3 for a hub-only machine,
+# which needs no bot dependencies and so may have no venv.
 PYTHON="$PROJECT_DIR/.venv/bin/python"
+if [ ! -x "$PYTHON" ]; then
+    PYTHON=$(command -v python3 || true)
+    if [ -z "$PYTHON" ]; then
+        echo "No .venv and no python3 on PATH. Run ./setup.sh first." >&2
+        exit 1
+    fi
+    echo "No .venv found - using ${PYTHON}"
+fi
 
 if [ ! -x "$PYTHON" ]; then
     err "Virtual environment not found at $PYTHON. Run ./setup.sh first."
@@ -80,9 +90,15 @@ EOF
 }
 
 echo "Installing launchd agents..."
-write_plist print_bot   bot.py     logs/bot.log
-write_plist monitor_bot monitor.py logs/monitor.log
-write_plist gallery_bot gallery.py logs/gallery.log
+# Bots need a .env. A hub-only machine has none, and installing agents that
+# exit immediately would leave launchd restarting them forever.
+if [ -f "$PROJECT_DIR/.env" ]; then
+    write_plist print_bot   bot.py     logs/bot.log
+    write_plist monitor_bot monitor.py logs/monitor.log
+    write_plist gallery_bot gallery.py logs/gallery.log
+else
+    echo "No .env - skipping the bot agents (this machine is a hub only)."
+fi
 
 # The hub is optional: only the machine acting as the hub has a hub.env.
 if [ -f "$PROJECT_DIR/hub.env" ]; then

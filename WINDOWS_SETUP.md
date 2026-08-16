@@ -145,6 +145,54 @@ WINDOWS_PAPER_FORM_NAME=...    # the numeric id from find_paper_form.py (step 5)
 
 Leave `CUPS_MEDIA` alone (it's only used on macOS).
 
+If this booth is reporting to a hub, add its two lines as well — see step 7b.
+
+---
+
+## 7b. Connect to the hub (optional)
+
+Skip this and the booth runs standalone, exactly as it would otherwise. The hub
+is never in the print path.
+
+1. **Install Tailscale** — <https://tailscale.com/download/windows>, run the
+   installer, sign in with **the same account as the hub machine**. A different
+   account creates a separate network and nothing will connect.
+
+2. **Check the system tray** (bottom-right, possibly under `^`) — Tailscale
+   should read *Connected*, and its menu should list the hub machine.
+
+3. **Confirm it can reach the hub**, in PowerShell:
+   ```powershell
+   ping <hub-tailscale-address>
+   ```
+
+4. **Open the dashboard in this PC's browser**: `http://<hub-address>:8080`
+
+   Do not continue until this loads. A routing failure and a misconfigured
+   `.env` look identical from the dashboard, and only one of them is fixed by
+   editing `.env`.
+
+5. **Register this booth on the hub machine** (not here):
+   ```
+   python -m hub.main add-printer "Booth B (Windows)"
+   ```
+   It prints a `PRINTER_API_KEY` — that key belongs to this booth alone.
+
+6. **Add both lines to `.env` here:**
+   ```ini
+   HUB_URL=http://<hub-tailscale-address>:8080
+   PRINTER_API_KEY=<the key from step 5>
+   ```
+
+No extra packages are needed — the hub client uses `httpx`, which
+python-telegram-bot already installs.
+
+Telemetry runs inside `monitor.py`. If that bot isn't running, this booth shows
+offline on the dashboard while continuing to print perfectly.
+
+**Running the hub itself on Windows isn't wired up** — `run.ps1` starts the
+three bots only. The hub is expected to live on a machine that stays awake.
+
 ---
 
 ## 8. Prevent the laptop from sleeping
@@ -202,6 +250,22 @@ To go back to manual running:
 > Do **not** run `.\run.ps1` while the services are installed — two copies of
 > the same bot cause Telegram's *"Conflict: terminated by other getUpdates
 > request"* error. Pick one method.
+
+---
+
+## 11. First-run checks — do these before trusting the machine
+
+Three code paths have **never executed on real Windows hardware**. Each was
+fixed blind, and each fails in a way that is easy to miss.
+
+| Check | What it proves |
+|---|---|
+| `/newribbon 700` in the monitor bot replies normally | The date-formatting fix. `strftime("%-d")` is a glibc extension that raises `ValueError` on Windows, so this command used to crash outright — including when you most need it, with a booth already stopped. |
+| Print a photo, then `/ink` shows the counter moved | The `msvcrt` file-locking branch in `supply_lock.py`, which guards the supply counters on every print. |
+| That same photo appears in the gallery channel | A silent failure that dropped **every** Windows print from the gallery: the caption used the same broken date format, inside a `try` that only logged. |
+
+If any misbehave, capture the exact error from `logs\monitor.log` or
+`logs\bot.log` — the traceback is the useful part.
 
 ---
 
