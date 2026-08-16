@@ -14,6 +14,7 @@ echo "=== Bot Status ==="
 
 logfile_for() {
     case $1 in
+        hub)         echo "logs/hub.log" ;;
         print_bot)   echo "logs/bot.log" ;;
         monitor_bot) echo "logs/monitor.log" ;;
         gallery_bot) echo "logs/gallery.log" ;;
@@ -57,9 +58,28 @@ fi
 [ -z "$MONITOR_PID" ] && MONITOR_PID=$(launchd_pid monitor_bot)
 [ -z "$GALLERY_PID" ] && GALLERY_PID=$(launchd_pid gallery_bot)
 
+HUB_PID=""
+if [ -f ".pids" ]; then
+    HUB_PID=$(grep "^hub=" .pids 2>/dev/null | cut -d= -f2 | tr -d '\r\n ')
+fi
+[ -z "$HUB_PID" ] && HUB_PID=$(launchd_pid hub)
+
 check_bot print_bot "$PRINT_PID"
 check_bot monitor_bot "$MONITOR_PID"
 check_bot gallery_bot "$GALLERY_PID"
+
+# Only report on the hub where one is configured.
+if [ -f "hub.env" ]; then
+    if [ -n "$HUB_PID" ] && kill -0 "$HUB_PID" 2>/dev/null; then
+        BIND=$(grep -E "^HUB_BIND=" hub.env | cut -d= -f2 | tr -d '\r\n ')
+        PORT=$(grep -E "^HUB_PORT=" hub.env | cut -d= -f2 | tr -d '\r\n ')
+        ok "hub RUNNING (PID ${HUB_PID}) - http://${BIND:-127.0.0.1}:${PORT:-8080}"
+        [ -f logs/hub.log ] && tail -2 logs/hub.log | sed 's/^/    /'
+    else
+        err "hub STOPPED"
+    fi
+    echo
+fi
 
 # --- Printer status (via the cross-platform printing abstraction) ---
 echo "=== Printer Status ==="

@@ -27,6 +27,7 @@ echo "Removing launchd agents..."
 remove_plist print_bot
 remove_plist monitor_bot
 remove_plist gallery_bot
+remove_plist hub          # no-op on booths that never ran one
 echo
 ok "Auto-start removed. Bots will no longer start at login."
 echo "Use ./run.sh to start them manually when needed."

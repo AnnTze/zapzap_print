@@ -29,10 +29,22 @@ fi
 mkdir -p "$LAUNCH_AGENTS_DIR"
 mkdir -p "$PROJECT_DIR/logs"
 
+# write_plist <name> <script-or-"-m module args"> <logfile>
 write_plist() {
     local name=$1
     local script=$2
     local logfile=$3
+    local args=""
+    if [ "${script#-m }" != "$script" ]; then
+        # module form: -m hub.main serve  ->  one <string> per token
+        for tok in ${script}; do
+            args="${args}        <string>${tok}</string>
+"
+        done
+    else
+        args="        <string>${PROJECT_DIR}/${script}</string>
+"
+    fi
     local label="com.local.zapzap.${name}"
     local plist="$LAUNCH_AGENTS_DIR/${label}.plist"
 
@@ -46,8 +58,7 @@ write_plist() {
     <key>ProgramArguments</key>
     <array>
         <string>${PYTHON}</string>
-        <string>${PROJECT_DIR}/${script}</string>
-    </array>
+${args}    </array>
     <key>WorkingDirectory</key>
     <string>${PROJECT_DIR}</string>
     <key>RunAtLoad</key>
@@ -72,6 +83,13 @@ echo "Installing launchd agents..."
 write_plist print_bot   bot.py     logs/bot.log
 write_plist monitor_bot monitor.py logs/monitor.log
 write_plist gallery_bot gallery.py logs/gallery.log
+
+# The hub is optional: only the machine acting as the hub has a hub.env.
+if [ -f "$PROJECT_DIR/hub.env" ]; then
+    write_plist hub "-m hub.main serve" logs/hub.log
+else
+    echo "No hub.env - skipping the hub agent (this machine is a booth only)."
+fi
 echo
 
 ok "Auto-start installed."
