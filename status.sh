@@ -117,9 +117,17 @@ echo
 
 # --- Uptime ---
 echo "=== Uptime ==="
-if [ -f ".pids" ]; then
-    STARTED=$(stat -f "%Sm" -t "%d %b %Y %H:%M" .pids 2>/dev/null)
-    echo "Bots started: ${STARTED}"
+# Read uptime from the process itself, not from .pids: under launchd there is
+# no .pids, and reporting "not running" under three RUNNING bots is worse than
+# reporting nothing.
+if [ -n "$PRINT_PID" ] && kill -0 "$PRINT_PID" 2>/dev/null; then
+    STARTED=$(ps -o lstart= -p "$PRINT_PID" 2>/dev/null | sed 's/^ *//')
+    echo "Print bot started: ${STARTED:-unknown}"
+    if [ -f ".pids" ]; then
+        echo "Managed manually (./run.sh). Stop with ./stop.sh"
+    else
+        echo "Managed by launchd (auto-start installed). Stop with ./uninstall-autostart.sh"
+    fi
 else
     echo "Bots not currently running."
 fi
