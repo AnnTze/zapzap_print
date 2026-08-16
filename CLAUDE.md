@@ -2,6 +2,11 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+> **Resuming work?** Read [HANDOFF.md](HANDOFF.md) first — it has the current
+> state of the deployment, what runs on which machine, the ranked next steps,
+> and the findings from the Apple HIG and LumaBooth research that only exist
+> there.
+
 ## What this is
 
 A three-bot Telegram photobooth print system running on macOS:
