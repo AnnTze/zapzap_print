@@ -3,7 +3,10 @@
 ## Requirements
 
 - macOS (any recent version)
-- Python 3.9 or later
+- **Python 3.9–3.13** (3.12 recommended). **Not 3.14** — python-telegram-bot
+  21.6 calls `asyncio.get_event_loop()`, removed in 3.14, and the bots crash on
+  startup. `setup.sh` refuses 3.14+. A new Mac may ship a newer Python than
+  this, so check with `python3 --version` before you start.
 - Mitsubishi CP-D90DW connected via USB
 - CP-D90DW driver installed ([download from Mitsubishi](https://www.mitsubishielectric.com/printer))
 - Three Telegram bots created via [@BotFather](https://t.me/BotFather)
@@ -13,12 +16,21 @@
 
 ## First-time setup on a new Mac
 
-### 1. Copy the project
+### 1. Get the project
 
-Either clone from git or copy the project folder to the new Mac.
+The repository is public, so no GitHub login is needed:
 
-Files needed at minimum:
-`bot.py`, `monitor.py`, `gallery.py`, `requirements.txt`, `setup.sh`, `run.sh`, `stop.sh`, `status.sh`, `.env.example`
+```bash
+git clone https://github.com/AnnTze/zapzap_print.git
+cd zapzap_print
+git checkout hub-dashboard
+```
+
+`hub-dashboard` is the current branch — it carries the Windows fixes, the
+supply auto-pause, and the hub telemetry. `main` is older.
+
+*(Copying the folder by hand also works, but then you have no way to pull
+updates.)*
 
 ### 2. Install the printer driver
 
@@ -54,6 +66,11 @@ Open `.env` in your editor and fill in the values:
 | `MONITOR_PASSWORD` | Admin password | Choose any password |
 | `PRINTER_NAME` | Exact printer name | From `lpstat -p` output |
 
+> **Rotating a token?** If you're replacing a bot token (for example because
+> the old one leaked), do it in @BotFather → `/mybots` → the bot → **API Token**
+> → **Revoke current token**, then put the new value here. Revoking invalidates
+> the old token immediately.
+
 ### 5. Set up the gallery channel
 
 1. In Telegram: **New Channel → Private** → name it (e.g. "Photobooth Gallery").
@@ -74,6 +91,17 @@ Open `.env` in your editor and fill in the values:
 ```
 
 All three bots should show `RUNNING`. Send a test photo to the print bot in Telegram — it should print and reply "Done!".
+
+---
+
+### 8. Connect it to the hub (optional)
+
+To have this booth appear on the monitoring dashboard and receive watermarks
+from the hub, follow **Part 2** of
+[BOOTH_SETUP_CHECKLIST.md](BOOTH_SETUP_CHECKLIST.md) — it covers Tailscale and
+the two extra `.env` lines.
+
+Skip it and the booth works exactly as described above, standalone.
 
 ---
 
